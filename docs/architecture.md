@@ -8,13 +8,14 @@
 | `validators.py` | Independent re-evaluation of exported code and weights. |
 | `baselines.py` | Classical attacks, information-theoretic bounds, and `score_rule_prediction`, the Exp 2 scorer. |
 | `sandbox.py` | `MeteredOracle` answers queries in the parent process and enforces the budget; `IsolatedPythonSandbox` runs agent code in a child process inside a temporary workspace. |
-| `clients/` | `base.ModelClient` (the contract below), `pricing.py`, and the Anthropic, Gemini and mock implementations. |
+| `clients/` | `base.ModelClient` (the contract below), `pricing.py`, and the Anthropic, Gemini, OpenAI-compatible (`openai_compat.py`) and mock implementations. |
 | `agent.py` | Tool schemas and `run_agent_loop`, the provider-independent tool loop. |
 | `exp1.py`, `exp2.py` | One trial each: build the instance and the prompt, run the loop, parse and score the answer, return the record. `exp2.py` also holds the budget tracks and the protocols. |
 | `parsing.py` | Final-answer parsers. |
 | `schedule.py` | Job lists, run keys and the resumable JSONL log. |
-| `cli.py` | Argument parsing, client choice, serial or threaded execution. |
-| `analysis/` | Reports and figures computed from the logs only. |
+| `presets.py` | Named sets of command line options for the paper's conditions (`--preset`). |
+| `cli.py` | Argument parsing, presets, client choice (`--provider`, `--client`), serial or threaded execution. |
+| `analysis/` | Reports and figures computed from the logs only; `summarize.py` summarises any log with the report's estimators. |
 
 ## Data flow
 
@@ -76,8 +77,33 @@ def create_message(self, *, model, system, messages, max_tokens, tools=None,
 - **Accounting:** call `check_budget()` before sending (it raises `BudgetExceededError` once
   the cap is reached) and `record_usage(...)` after a response; price tokens with
   `pricing.estimate_cost_usd`.
-- **Selection:** `cli.make_client` picks the client from the model ids.
+- **Selection:** `cli.make_client` returns the client of `--client module:factory` if given
+  (the factory is called with the parsed arguments and must return a `ModelClient`), else
+  the one named by `--provider`; `auto` keeps the original rule (mock for `--dry-run`, Gemini
+  if every model id is a Gemini or Gemma id, else Anthropic).
 
-The Gemini client is an example of translating this contract to a different wire format:
-it converts messages and tool schemas on the way out and normalises the reply on the way
-back, so nothing outside `clients/` knows which provider is in use.
+The Gemini and OpenAI-compatible clients are examples of translating this contract to a
+different wire format: they convert messages and tool schemas on the way out and
+normalise the reply on the way back, so nothing outside `clients/` knows which provider is
+in use. `openai_compat.py` documents in its module docstring how each irregular reply of a
+real server is read.
+
+## Notes for users of the code
+
+- **Malformed tool calls.** A tool call whose input is not an object, or whose `count` or
+  `seed` cannot be read as an integer, gets an error `tool_result` and uses no query
+  budget. Before, such a call raised `ValueError` and ended the run, so no logged trial
+  contains one; the prompts and tool schemas are unchanged.
+- **Interrupted log writes.** `append_jsonl` starts a record on a new line if the log does
+  not end in one, so a record written after a partial line is not lost. Readers skip the
+  partial line.
+- **Run keys.** The run key does not encode `--thinking-budget`, so runs that differ only in
+  it share keys. With `--max-tokens-override`, the `max_tokens_override` field is also
+  added to Exp 1 records, although only Exp 2 uses the override. Both are left as they are
+  because the published records were written this way.
+- **Spend cap.** `--max-cost-usd` caps an estimate for one invocation; see the README.
+- **Mock client.** The dry-run client recognises Exp 2 by the answer-format line that every
+  Exp 2 task type shares. Its strategies are written for Majority-3, so `dlist3` and
+  `dtree2` dry runs now parse but are seldom right; Majority-3 and Exp 1 dry runs are
+  unchanged.
+- **Sandbox.** Agent code runs as your user; it is not a security boundary (README).

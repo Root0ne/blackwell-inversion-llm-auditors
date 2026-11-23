@@ -246,6 +246,45 @@ class TestAgentLoop(unittest.TestCase):
         self.assertEqual(revision_turn["content"][-1], {"type": "text", "text": "please revise"})
         self.assertEqual((res["harness_check"], res["final_text"], res["queries_used"]), ("revise", "revised", 0))
 
+    def test_malformed_tool_input_returns_an_error_and_uses_no_budget(self) -> None:
+        # Before, int() on these values raised ValueError/TypeError/AttributeError and ended the run.
+        bad_inputs = [
+            ("query_oracle_random", {"count": "ten"}),
+            ("query_oracle_random", {"count": 5, "seed": "abc"}),
+            ("query_oracle_random", {"count": None}),
+            ("query_oracle_random", {"count": [5]}),
+            ("query_oracle_random", {"count": float("inf")}),
+            ("query_oracle_random", "{count: 5"),
+            ("query_oracle", ["not", "an", "object"]),
+            ("run_python", "print(1)"),
+        ]
+
+        def policy(i: int, call: Dict[str, Any]) -> Dict[str, Any]:
+            if i < len(bad_inputs):
+                name, tool_input = bad_inputs[i]
+                return {"content": [{"type": "tool_use", "id": f"b{i}", "name": name, "input": tool_input}],
+                        "stop_reason": "tool_use", "usage": {}}
+            if call.get("tool_choice") == NO_TOOLS:
+                return text_reply("done")
+            return tool_reply("query_oracle_random", {"count": "3", "seed": 2.9}, call_id="ok")  # int() accepts these
+
+        inst = generate_blackwell_inv_instance(n=40, support_size=3, variant="wb_clean", seed=7)
+        client = ScriptedClient(policy)
+        with IsolatedPythonSandbox(timeout_s=5.0) as sbx:
+            oracle = MeteredOracle(inst, max_queries=20, queries_json_path=sbx.queries_json_path)
+            res = run_agent_loop(client=client, model="m", system="s", user_prompt="task", oracle=oracle, sandbox=sbx,
+                                 allow_python=True, max_turns=len(bad_inputs) + 2, max_tokens_per_turn=64,
+                                 log_tool_inputs=True)
+        self.assertEqual(res["tool_sequence"], [f"{name}:err" for name, _ in bad_inputs] + ["query_oracle_random:ok"])
+        self.assertEqual(res["queries_used"], 3)  # only the valid call was charged
+        self.assertEqual(res["python_calls"], 0)
+        errors = [json.loads(c["messages"][-1]["content"][0]["content"]) for c in client.calls[1:len(bad_inputs) + 1]]
+        self.assertEqual(errors[0], {"ok": False, "error": "Invalid input for tool 'query_oracle_random': `count` and `seed` must be integers."})
+        self.assertEqual(errors[5], {"ok": False, "error": "Invalid input for tool 'query_oracle_random': the arguments must be a JSON object."})
+        self.assertEqual(errors[7]["error"], "Invalid input for tool 'run_python': the arguments must be a JSON object.")
+        self.assertTrue(all(e["ok"] is False for e in errors))
+        self.assertEqual(res["tool_log"][7], {"turn": 7, "tool": "run_python", "ok": False, "code": "print(1)", "stdout": ""})
+
     def test_spend_cap_interrupts_a_trial(self) -> None:
         client = ScriptedClient(greedy_tool_policy, cost_per_call=1.0, max_cost_usd=2.5)
         with self.assertRaises(BudgetExceededError):

@@ -1,4 +1,4 @@
-# Whitelist: only the experiment code, data, reports and documentation are tracked;
+# Whitelist: only the experiment code, examples, data, reports and documentation are tracked;
 # manuscript drafts, working notes and generated figures stay out of the repository.
 /*
 !/.gitignore
@@ -9,6 +9,7 @@
 !/blackwell_inversion/
 !/data/
 !/docs/
+!/examples/
 !/reports/
 !/tests/
 

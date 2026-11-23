@@ -2,8 +2,11 @@
 
     python -m blackwell_inversion --dry-run --experiment exp2 --exp2-seeds 1 --out dry.jsonl
 
-`--dry-run` uses the zero-cost mock client. Otherwise the provider is chosen from the
-model ids: Gemini/Gemma ids use the Gemini client, anything else the Anthropic client.
+`--dry-run` uses the zero-cost mock client. Otherwise `--provider` picks the client; with
+the default `auto` it is chosen from the model ids: Gemini/Gemma ids use the Gemini client,
+anything else the Anthropic client. `--provider openai --base-url URL` talks to any
+OpenAI-compatible server, and `--client module:factory` plugs in a client of your own.
+`--preset NAME` sets every option of one of the paper's conditions (see `presets`).
 A rerun with the same --out file skips every trial already logged.
 """
 
@@ -11,19 +14,29 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import importlib
+import importlib.util
+import shlex
 import sys
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .clients import AnthropicClient, BudgetExceededError, GeminiClient, MockDryRunClient, ModelClient
+from .clients import AnthropicClient, BudgetExceededError, GeminiClient, MockDryRunClient, ModelClient, OpenAICompatClient
+from .clients.openai_compat import MAX_TOKENS_FIELDS
 from .exp1 import EXP1_FAMILIES, run_exp1_trial
 from .exp2 import EXP2_PROTOCOLS, run_exp2_trial
+from .presets import PRESET_DESCRIPTIONS, PRESETS, PresetError, apply_preset, explicit_options
 from .schedule import Job, append_jsonl, build_exp1_schedule, build_exp2_schedule, load_completed_keys
 
 GOOGLE_MODEL_PREFIXES = ("gemini-", "gemma-")
 MOCK_MODEL_PREFIX = "mock-"
 PROGRESS_EVERY = 25
+PROVIDERS = ("auto", "anthropic", "gemini", "openai", "mock")
+
+
+class ClientLoadError(ValueError):
+    """A --client spec cannot be loaded or its factory does not return a ModelClient."""
 
 
 def _csv(value: str) -> List[str]:
@@ -38,6 +51,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--list-models", action="store_true", help="List the Anthropic models visible to the API key and exit.")
     parser.add_argument("--dry-run", action="store_true", help="Run the full tool/sandbox pipeline with the zero-cost mock client.")
+    parser.add_argument(
+        "--preset",
+        choices=tuple(PRESETS),
+        default=None,
+        help="Set every condition option of one of the paper's conditions (see --list-presets).",
+    )
+    parser.add_argument("--list-presets", action="store_true", help="List the presets and the options they set, and exit.")
+    parser.add_argument(
+        "--provider",
+        choices=PROVIDERS,
+        default="auto",
+        help="Model client: auto (mock with --dry-run, Gemini for Gemini/Gemma ids, else Anthropic), anthropic, "
+        "gemini, openai (any OpenAI-compatible server, needs --base-url) or mock (same as --dry-run).",
+    )
+    parser.add_argument(
+        "--client",
+        default="",
+        metavar="MODULE:FACTORY",
+        help="Custom client: 'package.module:factory' or 'path/to/file.py:factory'; factory(args) must return a ModelClient.",
+    )
+    parser.add_argument("--base-url", default="", help="OpenAI-compatible base URL, e.g. http://127.0.0.1:11434/v1 (--provider openai).")
+    parser.add_argument(
+        "--api-key-env",
+        default="",
+        metavar="VAR",
+        help="Environment variable holding the API key for --provider openai; empty (default) sends no key.",
+    )
+    parser.add_argument("--input-price-per-mtok", type=float, default=0.0, help="USD per million input tokens (--provider openai).")
+    parser.add_argument("--output-price-per-mtok", type=float, default=0.0, help="USD per million output tokens (--provider openai).")
+    parser.add_argument(
+        "--max-tokens-field",
+        choices=MAX_TOKENS_FIELDS,
+        default="max_tokens",
+        help="Request field for the per-turn output token cap (--provider openai).",
+    )
+    parser.add_argument("--request-timeout-s", type=float, default=600.0, help="Seconds to wait for one reply (--provider openai).")
     parser.add_argument("--experiment", choices=("exp1", "exp2", "all"), default="all", help="Which experiment to run.")
     parser.add_argument("--models", default="claude-haiku-5-5,claude-sonnet-5-5", help="Comma-separated model ids.")
     parser.add_argument(
@@ -91,13 +140,88 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def load_custom_client(spec: str, args: argparse.Namespace) -> ModelClient:
+    """Import `module:factory` (or `file.py:factory`), call factory(args) and check the result."""
+    module_part, sep, attr = spec.rpartition(":")
+    if not sep or not module_part or not attr:
+        raise ClientLoadError(f"--client {spec!r} must have the form package.module:factory or path/to/file.py:factory.")
+    try:
+        if module_part.endswith(".py"):
+            path = Path(module_part)
+            if not path.is_file():
+                raise ClientLoadError(f"--client: file {module_part!r} not found.")
+            file_spec = importlib.util.spec_from_file_location(f"_custom_client_{path.stem}", path)
+            if file_spec is None or file_spec.loader is None:
+                raise ClientLoadError(f"--client: cannot load {module_part!r} as a module.")
+            module = importlib.util.module_from_spec(file_spec)
+            file_spec.loader.exec_module(module)
+        else:
+            module = importlib.import_module(module_part)
+    except ImportError as exc:
+        raise ClientLoadError(f"--client: cannot import {module_part!r}: {exc}") from exc
+    factory = getattr(module, attr, None)
+    if not callable(factory):
+        raise ClientLoadError(f"--client: {module_part!r} has no callable {attr!r}.")
+    client = factory(args)
+    if not isinstance(client, ModelClient):
+        raise ClientLoadError(
+            f"--client: {spec} returned {type(client).__name__}, not a blackwell_inversion.clients.ModelClient."
+        )
+    return client
+
+
 def make_client(args: argparse.Namespace, models: Sequence[str]) -> ModelClient:
-    """Mock client for --dry-run, Gemini client if every model is a Google model, else Anthropic."""
-    if args.dry_run:
+    """The client for this run: --client, else --provider; `auto` keeps the original choice.
+
+    `auto` means the mock client for --dry-run, the Gemini client if every model is a
+    Google model, else the Anthropic client.
+    """
+    if args.client:
+        return load_custom_client(args.client, args)
+    if args.dry_run or args.provider == "mock":
         return MockDryRunClient()
-    if all(m.lower().startswith(GOOGLE_MODEL_PREFIXES) for m in models):
+    if args.provider == "openai":
+        return OpenAICompatClient(
+            args.base_url,
+            api_key_env=args.api_key_env,
+            max_cost_usd=args.max_cost_usd,
+            input_price_per_mtok=args.input_price_per_mtok,
+            output_price_per_mtok=args.output_price_per_mtok,
+            max_tokens_field=args.max_tokens_field,
+            timeout_s=args.request_timeout_s,
+        )
+    if args.provider == "gemini" or (
+        args.provider == "auto" and all(m.lower().startswith(GOOGLE_MODEL_PREFIXES) for m in models)
+    ):
         return GeminiClient(max_cost_usd=args.max_cost_usd, min_interval_s=args.min_interval_s)
     return AnthropicClient(max_cost_usd=args.max_cost_usd)
+
+
+def check_client_options(args: argparse.Namespace) -> Optional[str]:
+    """A message if the client options contradict each other, else None."""
+    if args.client and (args.provider != "auto" or args.dry_run):
+        return "--client cannot be combined with --provider or --dry-run."
+    if args.dry_run and args.provider not in ("auto", "mock"):
+        return f"--dry-run uses the mock client; it cannot be combined with --provider {args.provider}."
+    if args.provider == "openai" and not args.base_url:
+        return "--provider openai needs --base-url (for example http://127.0.0.1:11434/v1)."
+    if args.base_url and args.provider != "openai":
+        return "--base-url is used only with --provider openai."
+    return None
+
+
+def _list_presets() -> int:
+    for name, opts in PRESETS.items():
+        print(f"{name}: {PRESET_DESCRIPTIONS[name]}")
+        flags = []
+        for dest, value in opts.items():
+            flag = "--" + dest.replace("_", "-")
+            if isinstance(value, bool):
+                flags.append(flag if value else f"(no {flag})")
+            else:
+                flags.append(f"{flag} {shlex.quote(str(value))}")
+        print("    " + " ".join(flags))
+    return 0
 
 
 def build_jobs(args: argparse.Namespace, models: Sequence[str]) -> List[Tuple[str, Job]]:
@@ -188,14 +312,32 @@ def _list_models() -> int:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    args = build_parser().parse_args(argv)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     if args.list_models:
         return _list_models()
+    if args.list_presets:
+        return _list_presets()
+    if args.preset:
+        try:
+            for note in apply_preset(args, explicit_options(build_parser, argv)):
+                print(f"[PRESET] {note}", file=sys.stderr)
+        except PresetError as exc:
+            parser.error(str(exc))
+    problem = check_client_options(args)
+    if problem:
+        parser.error(problem)
+    if args.provider == "mock":
+        args.dry_run = True
 
     models = _csv(args.models)
     if args.dry_run:
         models = [m if m.startswith(MOCK_MODEL_PREFIX) else f"{MOCK_MODEL_PREFIX}{m}" for m in models]
-    client = make_client(args, models)
+    try:
+        client = make_client(args, models)
+    except (ClientLoadError, ValueError) as exc:
+        parser.error(str(exc))
 
     out_path = Path(args.out)
     done = load_completed_keys(out_path)

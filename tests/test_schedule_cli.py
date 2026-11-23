@@ -57,6 +57,22 @@ class TestSchedules(unittest.TestCase):
                 fh.write('{"run_key": "trunc')  # an interrupted write
             self.assertEqual(load_completed_keys(path), {"a"})
 
+    def test_a_record_after_an_interrupted_write_starts_on_a_new_line(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "log.jsonl"
+            append_jsonl(path, {"run_key": "a"})
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write('{"run_key": "trunc')  # interrupted: no closing brace, no newline
+            append_jsonl(path, {"run_key": "b"})
+            append_jsonl(path, {"run_key": "c"})
+            self.assertEqual(path.read_text(encoding="utf-8").splitlines(),
+                             ['{"run_key": "a"}', '{"run_key": "trunc', '{"run_key": "b"}', '{"run_key": "c"}'])
+            self.assertEqual(load_completed_keys(path), {"a", "b", "c"})
+            empty = Path(td) / "empty.jsonl"
+            empty.touch()
+            append_jsonl(empty, {"run_key": "x"})
+            self.assertEqual(empty.read_bytes(), b'{"run_key": "x"}\n')  # no blank first line
+
 
 class TestCommandLine(unittest.TestCase):
     def _main(self, argv, client) -> str:

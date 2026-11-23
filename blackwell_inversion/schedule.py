@@ -43,10 +43,19 @@ def load_completed_keys(path: Path) -> set[str]:
 
 
 def append_jsonl(path: Path, record: Dict[str, Any]) -> None:
-    """Append one record as a JSON line, creating the parent directory if needed."""
+    """Append one record as a JSON line, creating the parent directory if needed.
+
+    If the file does not end in a newline (an earlier write was interrupted), the record
+    starts on a new line, so it is not merged into the unreadable partial line.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record) + "\n")
+    with path.open("a+b") as fh:
+        prefix = b""
+        if fh.seek(0, 2) > 0:
+            fh.seek(-1, 2)
+            if fh.read(1) != b"\n":
+                prefix = b"\n"
+        fh.write(prefix + (json.dumps(record) + "\n").encode("utf-8"))
 
 
 def build_exp1_schedule(

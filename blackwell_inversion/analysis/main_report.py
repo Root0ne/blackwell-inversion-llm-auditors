@@ -131,24 +131,31 @@ def exp1_summary(rows: Sequence[Dict[str, Any]], family: str) -> List[Dict[str, 
     return out
 
 
-def exp2_paired_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-    """Exp 2 cells keyed by (model, effort, budget_track, task_type, token cap) with paired statistics."""
+Exp2Cell = Tuple[str, str, str, str, str]
+SeedMap = Dict[int, Dict[str, Any]]
+
+
+def exp2_cells(rows: Sequence[Dict[str, Any]]) -> List[Tuple[Exp2Cell, SeedMap, Dict[Tuple[str, str], SeedMap]]]:
+    """Exp 2 records grouped into cells (model, effort, budget_track, task_type, token cap).
+
+    Returns (cell, BB trials by seed, trials by (mode, variant) and seed) in sorted cell
+    order, after the borrowing described in the comments below. `exp2_paired_summary`
+    computes its statistics from these maps.
+    """
 
     def mt_tag(r: Dict[str, Any]) -> str:
         if "|mt=8192" in r.get("run_key", "") or r.get("max_tokens_override") == 8192:
             return "8192"
         return "4096"
 
-    by_cell: Dict[Tuple[str, str, str, str, str], Dict[Tuple[str, str], Dict[int, Dict[str, Any]]]] = defaultdict(
-        lambda: defaultdict(dict)
-    )
+    by_cell: Dict[Exp2Cell, Dict[Tuple[str, str], SeedMap]] = defaultdict(lambda: defaultdict(dict))
     for r in rows:
         if not r.get("run_key", "").startswith("exp2"):
             continue
         cell = (r["model"], r["effort"], r["budget_track"], r["task_type"], mt_tag(r))
         by_cell[cell][(r["mode"], r["variant"])][int(r["seed"])] = r
 
-    results: List[Dict[str, Any]] = []
+    out: List[Tuple[Exp2Cell, SeedMap, Dict[Tuple[str, str], SeedMap]]] = []
     for cell in sorted(by_cell.keys()):
         model, effort, track, task, mtag = cell
         variants_map = by_cell[cell]
@@ -169,7 +176,15 @@ def exp2_paired_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
             for (mode, var), smap in alt.items():
                 if mode == "WB" and (mode, var) not in variants_map:
                     variants_map[(mode, var)] = smap
+        out.append((cell, bb_map, variants_map))
+    return out
 
+
+def exp2_paired_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """Exp 2 cells keyed by (model, effort, budget_track, task_type, token cap) with paired statistics."""
+    results: List[Dict[str, Any]] = []
+    for cell, bb_map, variants_map in exp2_cells(rows):
+        model, effort, track, task, mtag = cell
         clean_map = variants_map.get(("WB", "wb_clean"), {})
 
         cell_rec: Dict[str, Any] = {

@@ -4,6 +4,7 @@ from .anthropic import AnthropicClient
 from .base import COST_KEY, BudgetExceededError, ModelClient
 from .gemini import GeminiClient
 from .mock import MockDryRunClient
+from .openai_compat import OpenAICompatClient
 from .pricing import estimate_cost_usd
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "GeminiClient",
     "MockDryRunClient",
     "ModelClient",
+    "OpenAICompatClient",
     "estimate_cost_usd",
 ]

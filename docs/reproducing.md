@@ -21,13 +21,16 @@ python -m unittest tests.test_data_integrity          # digests, counts, unique 
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -t .             # 92 tests, ~90 s (5 slow tests skipped)
-RUN_SLOW=1 python -m unittest tests.test_reproducibility   # 5 tests, ~20 s
+python -W error -m unittest discover -s tests -t .             # 156 tests, ~90 s (5 slow tests skipped)
+RUN_SLOW=1 python -W error -m unittest discover -s tests -t .  # all 156 tests, ~105 s
+RUN_SLOW=1 python -m unittest tests.test_reproducibility       # only the 5 slow tests, ~20 s
 ```
 
-Most of the default run is the end-to-end dry run of 720 mock trials. The slow tests
-regenerate every report below in a subprocess and compare it byte for byte, and render the
-figures in both languages.
+`-W error` turns every warning into an error; the suite runs clean under it. Most of the
+default run is the end-to-end dry run of 720 mock trials. The OpenAI-compatible client is
+tested against a real HTTP server on 127.0.0.1 started by the tests; nothing reaches the
+network. The slow tests regenerate every report below in a subprocess and compare it byte
+for byte, and render the figures in both languages.
 
 ## Reports
 
@@ -42,6 +45,11 @@ Compare with `cmp` against `reports/report_c3_unified.{json,txt}`,
 `reports/report_mechanism.{json,txt}`, `reports/report_followup.{json,txt}` and
 `reports/legacy/report_master_final.{json,md}`; all are byte-identical. Without
 `--out-json`, `main_report` and `mechanism` overwrite the files in `reports/`.
+
+`python -m blackwell_inversion.analysis.summarize data/main/results_c2_pilot.jsonl
+data/main/results_c3_expansion.jsonl` (about 1.5 s) prints the per-model summary that
+[`evaluating_your_model.md`](evaluating_your_model.md) describes for your own logs; its
+numbers are those of the main report.
 
 `python -m blackwell_inversion.analysis.main_report --write-merged` rebuilds
 `data/main/results_c3_expansion.jsonl` from `data/main/expansion_parts/`; the result is

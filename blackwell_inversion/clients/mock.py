@@ -16,8 +16,9 @@ from typing import Any, Dict, List, Optional
 
 from .base import COST_KEY, Message, ModelClient, ToolSchema
 
-# Prompt substrings the mock uses to tell the experiments and access modes apart.
-EXP2_PROMPT_MARKERS = ("3-variable majority", "majority rule")
+# Prompt substrings the mock uses to tell the experiments and access modes apart. The
+# answer-format line is common to every Exp 2 task type and absent from Exp 1 prompts.
+EXP2_PROMPT_MARKERS = ("3-variable majority", "majority rule", 'Conclude with JSON: {"support": [')
 CODE_ARTIFACT = "artifact.py"
 WEIGHTS_ARTIFACT = "weights.npz"
 RULE_JSON_PATTERN = r'\{"support":\s*\[[^\]]+\],\s*"signs":\s*\[[^\]]+\]\}'
@@ -27,8 +28,8 @@ DEFAULT_RULE_ANSWER = '{"support": [0, 1, 2], "signs": [1, 1, 1]}'
 class MockDryRunClient(ModelClient):
     """Deterministic stand-in for a model; it never spends money and never checks the cap.
 
-    Experiment 2 is recognised by the majority-rule wording, so the other Experiment 2
-    task types (dlist3, dtree2) are answered as if they were Experiment 1 and fail to parse.
+    Experiment 2 is recognised by its prompt wording for every task type. Its strategies
+    are written for the majority rule, so dlist3 and dtree2 answers parse but are seldom right.
     """
 
     def __init__(self) -> None:

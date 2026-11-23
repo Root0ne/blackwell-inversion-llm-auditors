@@ -1,9 +1,15 @@
-"""Scripted stand-ins for model providers and HTTP, shared by the test modules."""
+"""Scripted stand-ins for model providers and HTTP, shared by the test modules.
+
+`FakeHTTP` replaces urllib in-process; `LocalChatServer` is a real HTTP server on the
+loopback interface for the OpenAI-compatible client. Nothing here reaches the network.
+"""
 
 from __future__ import annotations
 
+import http.server
 import io
 import json
+import threading
 import urllib.request
 from typing import Any, Callable, Dict, List, Optional
 from unittest import mock
@@ -102,3 +108,95 @@ class FakeHTTP:
 
     def patch(self) -> Any:
         return mock.patch("urllib.request.urlopen", self)
+
+
+class LocalChatServer:
+    """A real HTTP server on 127.0.0.1 (ephemeral port) that plays an OpenAI-compatible API.
+
+    Each POST is recorded as {"path", "headers", "body"} and answered by `responder`,
+    called with (request index, parsed body, headers). It returns a JSON-serialisable
+    body (status 200), or a tuple (status, body, extra headers) where a str or bytes body
+    is sent verbatim. Use as a context manager; the server thread stops on exit.
+    """
+
+    def __init__(self, responder: Callable[[int, Any, Dict[str, str]], Any]) -> None:
+        self.responder = responder
+        self.requests: List[Dict[str, Any]] = []
+        self._lock = threading.Lock()
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 (http.server naming)
+                raw = self.rfile.read(int(self.headers.get("content-length") or 0))
+                try:
+                    body: Any = json.loads(raw.decode("utf-8"))
+                except ValueError:
+                    body = raw.decode("utf-8", errors="replace")
+                headers = {k.lower(): v for k, v in self.headers.items()}
+                with outer._lock:
+                    index = len(outer.requests)
+                    outer.requests.append({"path": self.path, "headers": headers, "body": body})
+                reply = outer.responder(index, body, headers)
+                status, payload, extra = reply if isinstance(reply, tuple) else (200, reply, {})
+                if isinstance(payload, str):
+                    payload = payload.encode("utf-8")
+                elif not isinstance(payload, bytes):
+                    payload = json.dumps(payload).encode("utf-8")
+                self.send_response(status)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(payload)))
+                for key, value in extra.items():
+                    self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args: Any) -> None:
+                return None
+
+        self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._server.daemon_threads = True
+        self._thread = threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.05})
+
+    @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self._server.server_address[1]}/v1"
+
+    def bodies(self) -> List[Any]:
+        return [r["body"] for r in self.requests]
+
+    def __enter__(self) -> LocalChatServer:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join()
+
+
+def chat_reply(
+    content: Optional[Any] = None,
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
+    finish_reason: Optional[str] = None,
+    usage: Optional[Dict[str, Any]] = None,
+    **message_extra: Any,
+) -> Dict[str, Any]:
+    """An OpenAI-compatible chat completion body."""
+    message: Dict[str, Any] = {"role": "assistant", "content": content, **message_extra}
+    if tool_calls is not None:
+        message["tool_calls"] = tool_calls
+    if finish_reason is None:
+        finish_reason = "tool_calls" if tool_calls else "stop"
+    choice = {"index": 0, "message": message, "finish_reason": finish_reason}
+    body: Dict[str, Any] = {"id": "chatcmpl-test", "object": "chat.completion", "choices": [choice]}
+    if usage is not None:
+        body["usage"] = usage
+    return body
+
+
+def function_call(name: str, arguments: Any, call_id: Optional[str] = "c1") -> Dict[str, Any]:
+    """One entry of `tool_calls`; `arguments` is sent as given (normally a JSON string)."""
+    call: Dict[str, Any] = {"type": "function", "function": {"name": name, "arguments": arguments}}
+    if call_id is not None:
+        call["id"] = call_id
+    return call

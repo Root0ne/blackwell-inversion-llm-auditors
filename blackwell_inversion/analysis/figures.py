@@ -63,7 +63,7 @@ LABELS: Dict[str, Dict[str, Any]] = {
             ("Analiz", [
                 ("İstatistik", "Fisher, permütasyon, Holm"),
                 ("Kayıp Ayrıştırması", "Tuzak, kesilme, diğer"),
-                ("Bütünlük", "7.631 deneme, 18 test"),
+                ("Bütünlük", "7.631 deneme, test paketi"),
             ]),
         ],
         "fig0_tool_arrow": "Araç",
@@ -89,7 +89,7 @@ LABELS: Dict[str, Dict[str, Any]] = {
         "opaque_weights": "Opak ağırlık",
         "opus46_8k": "Opus 4.6, zor koruyuculu kod, token tavanı 8.192",
         "net_wb_advantage": NET_WB_ADVANTAGE_TR,
-        "inversion": r"Tersinme ($\Delta_{\mathrm{WB}} < 0$)",
+        "inversion": r"Ters etki ($\Delta_{\mathrm{WB}} < 0$)",
         "effort_ticks": ["Düşük\n(low)", "Orta\n(medium)", "Yüksek\n(high)"],
         "fig3a_ylabel": "Zor Koruyuculu Kodda Tuzak Oranı (%)",
         "fig3a_title": "(a) Efor Taraması: İki Sağlayıcıdan Dört Model",
@@ -158,7 +158,7 @@ LABELS: Dict[str, Dict[str, Any]] = {
             ("Analysis", [
                 ("Statistics", "Fisher, permutation, Holm"),
                 ("Loss Decomposition", "Decoy, truncation, other"),
-                ("Integrity", "7,631 trials, 18 tests"),
+                ("Integrity", "7,631 trials, test suite"),
             ]),
         ],
         "fig0_tool_arrow": "Tools",
@@ -563,6 +563,8 @@ def make_fig1(loc: Locale, out_dir: Path, c3: Dict[str, Any]) -> None:
     ax2.set_xticklabels(regimes_b)
     ax2.set_xlim(-0.35, 1.35)
     ax2.set_ylim(-0.68, 1.16)
+    # Ticks every 0.2, as in panel (a), so the one-decimal labels are exact.
+    ax2.set_yticks([-0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
     ax2.yaxis.set_major_formatter(loc.axis_fmt(1, signed=True))
     ax2.set_ylabel(loc["adv_axis"])
     ax2.set_title(loc["fig1b_title"], loc="left", fontsize=7.4, fontweight="bold", pad=7)

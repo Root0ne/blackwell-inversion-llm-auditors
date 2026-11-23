@@ -1,8 +1,9 @@
-# Computational Blackwell Inversion: Experiment Code and Trial Logs
+# The Computational Inverse Blackwell Effect: Experiment Code and Trial Logs
 
 This repository holds the code, the raw logs of 7,631 live trials, and the analysis
-scripts behind the paper "Observer-Relative Virtual Black-Box Barriers and Computational
-Blackwell Inversion in Tool-Using LLM Auditors" (under review).
+scripts behind the paper "The Computational Inverse Blackwell Effect and the
+Observer-Relative Virtual Black-Box Property in Tool-Using Large Language Model Auditors"
+(under review). It also lets you run the same benchmark on a model of your own.
 
 ## What the benchmark measures
 
@@ -14,9 +15,10 @@ modes, with the same seeds and the same interaction budget:
   code or neural-network weights.
 
 The difference in success, `Delta_WB = WB - BB`, is the white-box advantage. Intuition says
-it should never be negative: extra information cannot hurt. Two compilers produce
-functions on which it is close to zero or negative, without changing what the function
-computes:
+it should never be negative: extra information cannot hurt. A negative value is the
+computational inverse Blackwell effect: the agent does worse with the code than with the
+oracle alone. Two compilers produce functions on which the advantage is close to zero or
+negative, without changing what the function computes:
 
 - **Experiment 1 (`exp1`, compiler `C_kXOR`):** decide whether the function hides a planted
   backdoor (a noisy k-XOR trigger) or is clean. Metric: distinguishing advantage
@@ -25,6 +27,26 @@ computes:
 - **Experiment 2 (`exp2`, compiler `C_inv`):** recover a hidden 3-variable rule. The white-box
   code contains a readable decoy branch that never fires. Metrics: held-out accuracy,
   `Delta_WB`, and the trap rate (how often the answer equals the decoy rule).
+
+## Evaluate your own model
+
+Any model behind an OpenAI-compatible server (a local model served by Ollama, vLLM, the
+llama.cpp server or LM Studio, or a hosted API) can be run on the paper's conditions and
+compared with the paper's 15 models:
+
+```bash
+python -m blackwell_inversion --preset smoke --provider openai \
+    --base-url http://127.0.0.1:11434/v1 --models <model> --out results/my_model.jsonl     # 3 trials
+python -m blackwell_inversion --preset paper-exp2-main --provider openai \
+    --base-url http://127.0.0.1:11434/v1 --models <model> --out results/my_model.jsonl     # 150 trials
+python -m blackwell_inversion.analysis.summarize results/my_model.jsonl --compare-paper
+```
+
+`--client module:factory` plugs in any other client (an in-process model, a proprietary
+API); [`examples/rule_based_client.py`](examples/rule_based_client.py) is a runnable
+example. [`docs/evaluating_your_model.md`](docs/evaluating_your_model.md) walks through
+server setup, what the model must support, the expected number of requests and tokens,
+how to read the summary and how to compare with the paper.
 
 ## Quick start
 
@@ -36,7 +58,7 @@ with these pinned versions should work. The model clients use only the standard 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt        # pinned versions; or: pip install -e ".[figures]"
 
-python -m unittest discover -s tests -t .    # 92 tests, about 1.5 minutes, no network
+python -W error -m unittest discover -s tests -t .    # 156 tests, about 1.5 minutes, no network
 
 # Run the whole pipeline with the zero-cost mock client (about 1 second)
 python -m blackwell_inversion --dry-run --experiment exp2 --models claude-haiku-5-5 \
@@ -55,15 +77,17 @@ still works.
 | `blackwell_inversion/validators.py` | Checks, independent of the generators, that exported code and weights compute the same function in every variant. |
 | `blackwell_inversion/baselines.py` | The eight classical reference attacks (weight statistics, SVD, Canon+Kikuchi spectral solver, simulated annealing, ...), black-box advantage bounds and the Exp 2 scorer. |
 | `blackwell_inversion/sandbox.py` | `IsolatedPythonSandbox` (runs agent-written Python) and `MeteredOracle` (enforces the query budget). |
-| `blackwell_inversion/clients/` | The `ModelClient` contract (`base.py`), the price table, and the Anthropic, Gemini and mock clients. |
+| `blackwell_inversion/clients/` | The `ModelClient` contract (`base.py`), the price table, and the Anthropic, Gemini, OpenAI-compatible and mock clients. |
 | `blackwell_inversion/agent.py` | Tool schemas and the tool-calling agent loop. |
 | `blackwell_inversion/exp1.py`, `exp2.py` | Trial functions, prompts, regimes, budget tracks and the Exp 2 protocols. |
 | `blackwell_inversion/parsing.py` | Parsers for the agent's final answer. |
 | `blackwell_inversion/schedule.py`, `cli.py` | Trial schedules and run keys; the command line driver with the resumable JSONL log. |
-| `blackwell_inversion/analysis/` | `stats.py` (statistics), `main_report.py`, `mechanism.py`, `followup.py` (the three reports), `figures.py`, and `legacy_report.py` (the earlier stage report). |
+| `blackwell_inversion/presets.py` | The `--preset` conditions (`paper-exp2-main`, `paper-exp1`, `smoke`). |
+| `blackwell_inversion/analysis/` | `stats.py` (statistics), `main_report.py`, `mechanism.py`, `followup.py` (the three reports), `summarize.py` (summary of your own log), `figures.py`, and `legacy_report.py` (the earlier stage report). |
 | `data/` | Trial logs, `SHA256SUMS`, and `data/README.md` with the field dictionary. |
 | `reports/` | The three reports the paper relies on; `reports/legacy/` holds superseded stage reports. |
-| `docs/` | [`protocol.md`](docs/protocol.md) (study protocol), [`architecture.md`](docs/architecture.md), [`reproducing.md`](docs/reproducing.md). |
+| `docs/` | [`evaluating_your_model.md`](docs/evaluating_your_model.md), [`protocol.md`](docs/protocol.md) (study protocol), [`architecture.md`](docs/architecture.md), [`reproducing.md`](docs/reproducing.md). |
+| `examples/` | A runnable custom client for `--client`. |
 | `tests/` | Unit, integration and reproduction tests (`unittest`). |
 
 ## Data
@@ -122,20 +146,25 @@ python -m blackwell_inversion --experiment exp2 --models claude-haiku-5-5 \
     --effort medium --exp2-seeds 25 --max-cost-usd 5 --out results_new.jsonl
 ```
 
-If every model id starts with `gemini-` or `gemma-` the Gemini client is used, otherwise the
-Anthropic client; one run uses one provider. `python -m blackwell_inversion --help` lists all
-options; `--list-models` lists the Anthropic models visible to your key.
+With the default `--provider auto`, the Gemini client is used if every model id starts with
+`gemini-` or `gemma-`, otherwise the Anthropic client; one run uses one provider.
+`--provider openai` selects the OpenAI-compatible client and `--client` a client of your
+own (see [`docs/evaluating_your_model.md`](docs/evaluating_your_model.md)).
+`python -m blackwell_inversion --help` lists all options; `--list-models` lists the
+Anthropic models visible to your key.
 
 **The spend cap.** `--max-cost-usd` caps the estimated spend of one invocation. Each
 response's token usage is priced with the table in `blackwell_inversion/clients/pricing.py`
-(unknown model ids get a deliberately high fallback rate), and before every request the
+(unknown model ids get a deliberately high fallback rate; with `--provider openai` the
+prices given by `--input-price-per-mtok` and `--output-price-per-mtok` are used, default 0),
+and before every request the
 client compares the running total with the cap; once the total has reached it, the client
 raises `BudgetExceededError` instead of sending the request. A serial run then stops; with
 `--workers N` no new trial starts, and requests already in flight may still complete, so
 the total can exceed the cap by up to N requests. A trial interrupted by the cap is not
 written to the log. The total is an estimate, not the provider's bill, and it starts at
-zero in every invocation: spend from earlier, resumed runs is not counted. A Gemini
-HTTP 402 (prepaid credit exhausted) is treated like the cap.
+zero in every invocation: spend from earlier, resumed runs is not counted. An HTTP 402
+(prepaid credit exhausted) from the Gemini or an OpenAI-compatible API is treated like the cap.
 
 **Resuming.** Every record carries a `run_key` that encodes the model, the settings and the
 condition. Restarting with the same `--out` file skips every trial already logged;
@@ -202,24 +231,6 @@ reading the answer or the keys through the environment, but it is not a security
 boundary: the child runs as your user, can read any file your user can read (including
 `~/.env`) and has network access. Run live experiments in a disposable VM or container if
 that matters to you. The resource limits need Linux.
-
-## Known limitations
-
-- `docs/protocol.md` translates a local protocol document written before the experiments; it
-  was not time-stamped on an external pre-registration platform.
-- The parameters of the main Exp 1 family, `4xor_strict`, were fixed after the calibration
-  findings.
-- The follow-up runs were designed after the results had been seen and are exploratory; the
-  paper reports them in a separate subsection.
-- Providers may change the models behind an id, so live runs need not reproduce the
-  logged numbers exactly. The analysis of the logs is deterministic.
-- The mock client recognises Experiment 2 only by the Majority-3 prompt; dry runs of the
-  `dlist3` and `dtree2` tasks exercise the pipeline but their answers do not parse.
-- The run key does not encode `--thinking-budget`; runs that differ only in it share keys.
-
-## Evaluating your own model
-
-To be documented in `docs/` once the OpenAI-compatible client lands.
 
 ## License
 

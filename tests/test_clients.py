@@ -21,6 +21,7 @@ from blackwell_inversion.clients import (
 from blackwell_inversion.clients.anthropic import apply_prompt_caching
 from blackwell_inversion.clients.gemini import convert_messages, to_gemini_schema
 from blackwell_inversion.clients.pricing import MODEL_PRICING_USD_PER_MTOK
+from blackwell_inversion.exp2 import run_exp2_trial
 
 from .fakes import FakeHTTP
 
@@ -100,6 +101,25 @@ class TestModelClientContract(unittest.TestCase):
         self.assertAlmostEqual(client.total_cost_usd, 0.22)
         self.assertEqual(client.total_input_tokens, 2_000_000)
         self.assertEqual(client.total_cache_read_tokens, 2_000_000)
+
+    def test_http_errors_are_closed_after_their_body_is_read(self) -> None:
+        # An unclosed HTTPError holds its response open; the garbage collector then emits a ResourceWarning.
+        cases = [
+            (AnthropicClient, "claude-haiku-5-5", [http_error(529), ANTHROPIC_OK], None),
+            (AnthropicClient, "claude-haiku-5-5", [http_error(400)], RuntimeError),
+            (GeminiClient, "gemini-3.8-flash", [http_error(402)], BudgetExceededError),
+            (GeminiClient, "gemini-3.8-flash", [http_error(500), http_error(400)], RuntimeError),
+        ]
+        for cls, model, replies, expected in cases:
+            errors = [r for r in replies if isinstance(r, urllib.error.HTTPError)]
+            fake = FakeHTTP(replies)
+            with fake.patch(), mock.patch("time.sleep"):
+                if expected is None:
+                    cls(api_key="k").create_message(model=model, system="s", messages=USER, max_tokens=8)
+                else:
+                    with self.assertRaises(expected):
+                        cls(api_key="k").create_message(model=model, system="s", messages=USER, max_tokens=8)
+            self.assertTrue(all(err.fp.closed for err in errors), (cls.__name__, [e.code for e in errors]))
 
     def test_missing_api_key_is_reported_without_a_request(self) -> None:
         client = AnthropicClient(api_key="placeholder", max_cost_usd=1.0)
@@ -234,6 +254,14 @@ class TestMockClient(unittest.TestCase):
             MockDryRunClient().create_message(
                 model="mock-x", system="s", messages=[{"role": "assistant", "content": "x"}], max_tokens=8
             )
+
+    def test_mock_answers_every_exp2_task_type(self) -> None:
+        for task_type in ("majority3", "dlist3", "dtree2"):
+            for mode, variant in (("BB", "wb_inv_code"), ("WB", "wb_inv_code"), ("WB", "wb_inv_relu")):
+                rec = run_exp2_trial(client=MockDryRunClient(), model="mock-x", variant=variant, mode=mode,
+                                     budget_track="matched_medium_budget", seed=5000, task_type=task_type)
+                self.assertTrue(rec["parse_ok"], (task_type, mode, variant))
+                self.assertGreater(rec["queries_used"] + rec["python_calls"], 0)
 
     def test_mock_never_spends(self) -> None:
         client = MockDryRunClient()

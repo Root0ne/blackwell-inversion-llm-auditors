@@ -22,6 +22,9 @@ NO_TOOLS = {"type": "none"}
 MAX_LOGGED_CODE_CHARS = 8000
 MAX_LOGGED_STDOUT_CHARS = 2000
 FINAL_EXCERPT_CHARS = 240
+# Errors returned to the model for a malformed tool call; such a call uses no query budget.
+INPUT_NOT_OBJECT = "the arguments must be a JSON object."
+COUNT_SEED_NOT_INT = "`count` and `seed` must be integers."
 
 # Fields of the `run_agent_loop` result that both experiments copy into every record.
 TELEMETRY_FIELDS = (
@@ -108,6 +111,14 @@ def extract_text_blocks(response: Dict[str, Any]) -> str:
         if isinstance(blk, dict) and blk.get("type") == "text":
             parts.append(str(blk.get("text", "")))
     return "\n".join(parts).strip()
+
+
+def _int_or_none(value: Any) -> Optional[int]:
+    """int(value) as the loop has always applied it to tool arguments, or None where that fails."""
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def _tool_uses(content: List[Any]) -> List[Dict[str, Any]]:
@@ -228,8 +239,14 @@ def run_agent_loop(
         for tu in tool_uses:
             tname = tu.get("name", "")
             tinput = tu.get("input", {}) or {}
-            if tname == "query_oracle_random":
-                out_obj = oracle.query_random(count=int(tinput.get("count", 1)), seed=int(tinput.get("seed", 0)))
+            if not isinstance(tinput, dict):
+                out_obj = {"ok": False, "error": f"Invalid input for tool {tname!r}: {INPUT_NOT_OBJECT}"}
+            elif tname == "query_oracle_random":
+                count, seed = _int_or_none(tinput.get("count", 1)), _int_or_none(tinput.get("seed", 0))
+                if count is None or seed is None:
+                    out_obj = {"ok": False, "error": f"Invalid input for tool {tname!r}: {COUNT_SEED_NOT_INT}"}
+                else:
+                    out_obj = oracle.query_random(count=count, seed=seed)
             elif tname == "query_oracle":
                 out_obj = oracle.query(tinput.get("inputs", []))
             elif tname == "run_python" and allow_python and sandbox is not None:
@@ -240,7 +257,8 @@ def run_agent_loop(
             if log_tool_inputs:
                 entry: Dict[str, Any] = {"turn": turn_idx, "tool": tname, "ok": bool(out_obj.get("ok"))}
                 if tname == "run_python":
-                    entry["code"] = str(tinput.get("code", ""))[:MAX_LOGGED_CODE_CHARS]
+                    code = tinput.get("code", "") if isinstance(tinput, dict) else tinput
+                    entry["code"] = str(code)[:MAX_LOGGED_CODE_CHARS]
                     entry["stdout"] = str(out_obj.get("stdout", ""))[:MAX_LOGGED_STDOUT_CHARS]
                 else:
                     entry["n_outputs"] = len(out_obj.get("outputs", []) or [])

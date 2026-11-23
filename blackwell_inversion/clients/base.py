@@ -33,11 +33,15 @@ Response (the dict `create_message` returns):
 
 A client must raise `BudgetExceededError` before sending a request once its cumulative
 spend has reached `max_cost_usd`; the driver stops scheduling trials when it sees it.
+
+A client of your own plugs in with `--client module:factory`, where `factory(args)`
+returns a `ModelClient`; `examples/rule_based_client.py` is a complete example.
 """
 
 from __future__ import annotations
 
 import abc
+import contextlib
 import os
 import threading
 import urllib.error
@@ -60,11 +64,18 @@ def resolve_api_key(explicit: Optional[str], env_var: str) -> str:
 
 
 def http_error_body(err: urllib.error.HTTPError, limit: int = 500) -> str:
-    """The first `limit` characters of an HTTP error response, for the exception message."""
+    """The first `limit` characters of an HTTP error response, for the exception message.
+
+    The error holds the open response; it is closed here, so a handled or re-raised error
+    leaves no file object for the garbage collector to clean up.
+    """
     try:
         return err.read().decode("utf-8", errors="replace")[:limit]
     except Exception:
         return ""
+    finally:
+        with contextlib.suppress(Exception):
+            err.close()
 
 
 def _key_from_dotenv(var_name: str) -> str:
