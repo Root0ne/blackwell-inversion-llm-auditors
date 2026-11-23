@@ -29,7 +29,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -1102,8 +1102,22 @@ def run_agent_loop(
     thinking_budget: int = 0,
     thinking_mode: str = "adaptive",
     effort: str = "",
+    log_tool_inputs: bool = False,
+    final_check: Optional[Callable[[str], Optional[str]]] = None,
+    revision_turns: int = 1,
 ) -> Dict[str, Any]:
+    """Run the tool loop.
+
+    log_tool_inputs: also return the Python code and query sizes of every tool call.
+    final_check: called with the agent's final text after the loop; if it returns a
+    note, the note is sent as one extra tool-free turn and the reply to it becomes
+    the final answer (used by the harness_check protocol of Experiment 2).
+    revision_turns: number of turns granted after a failed final_check. 1 is the single
+    tool-free turn described above; with R > 1 the first R - 1 turns may call tools and
+    the last one is tool-free (harness_check_tools protocol).
+    """
     tools = build_tool_schemas(allow_python=allow_python, n=oracle.n)
+    tool_log: List[Dict[str, Any]] = []
     messages: List[Dict[str, Any]] = [{"role": "user", "content": user_prompt}]
     total_in = 0
     total_out = 0
@@ -1117,6 +1131,42 @@ def run_agent_loop(
     tool_sequence: List[str] = []
     stop_reasons: List[str] = []
     t0 = time.monotonic()
+
+    def _exec_tools(tool_uses: List[Dict[str, Any]], turn_idx: int) -> List[Dict[str, Any]]:
+        tool_results: List[Dict[str, Any]] = []
+        for tu in tool_uses:
+            tname = tu.get("name", "")
+            tid = tu.get("id", "unknown")
+            tinput = tu.get("input", {}) or {}
+            if tname == "query_oracle_random":
+                out_obj = oracle.query_random(
+                    count=int(tinput.get("count", 1)),
+                    seed=int(tinput.get("seed", 0)),
+                )
+            elif tname == "query_oracle":
+                out_obj = oracle.query(tinput.get("inputs", []))
+            elif tname == "run_python" and allow_python and sandbox is not None:
+                out_obj = sandbox.run_python(str(tinput.get("code", "")))
+            else:
+                out_obj = {"ok": False, "error": f"Tool {tname!r} is unavailable."}
+            tool_sequence.append(f"{tname}:{'ok' if out_obj.get('ok') else 'err'}")
+            if log_tool_inputs:
+                entry: Dict[str, Any] = {"turn": turn_idx, "tool": tname, "ok": bool(out_obj.get("ok"))}
+                if tname == "run_python":
+                    entry["code"] = str(tinput.get("code", ""))[:8000]
+                    entry["stdout"] = str(out_obj.get("stdout", ""))[:2000]
+                else:
+                    entry["n_outputs"] = len(out_obj.get("outputs", []) or [])
+                    entry["queries_used_after"] = oracle.queries_used
+                tool_log.append(entry)
+            tool_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tid,
+                    "content": json.dumps(out_obj),
+                }
+            )
+        return tool_results
 
     for turn_idx in range(max_turns):
         turns_used = turn_idx + 1
@@ -1173,35 +1223,86 @@ def run_agent_loop(
             final_text = _extract_text_blocks(resp)
             break
 
-        tool_results: List[Dict[str, Any]] = []
-        for tu in tool_uses:
-            tname = tu.get("name", "")
-            tid = tu.get("id", "unknown")
-            tinput = tu.get("input", {}) or {}
-            if tname == "query_oracle_random":
-                out_obj = oracle.query_random(
-                    count=int(tinput.get("count", 1)),
-                    seed=int(tinput.get("seed", 0)),
-                )
-            elif tname == "query_oracle":
-                out_obj = oracle.query(tinput.get("inputs", []))
-            elif tname == "run_python" and allow_python and sandbox is not None:
-                out_obj = sandbox.run_python(str(tinput.get("code", "")))
-            else:
-                out_obj = {"ok": False, "error": f"Tool {tname!r} is unavailable."}
-            tool_sequence.append(f"{tname}:{'ok' if out_obj.get('ok') else 'err'}")
-            tool_results.append(
-                {
-                    "type": "tool_result",
-                    "tool_use_id": tid,
-                    "content": json.dumps(out_obj),
-                }
-            )
+        tool_results = _exec_tools(tool_uses, turn_idx)
         messages.append({"role": "user", "content": tool_results})
         if turn_idx == max_turns - 1:
             final_text = _extract_text_blocks(resp)
 
+    harness_check = ""
+    if final_check is not None:
+        note = final_check(final_text)
+        harness_check = "pass" if note is None else "revise"
+        if note is not None:
+            note_blk = {"type": "text", "text": note}
+            if messages and messages[-1].get("role") == "user":
+                if isinstance(messages[-1]["content"], list):
+                    messages[-1]["content"].append(note_blk)
+                else:
+                    messages[-1]["content"] = [
+                        {"type": "text", "text": str(messages[-1]["content"])},
+                        note_blk,
+                    ]
+            else:
+                # The loop can end on an assistant turn that still holds tool_use blocks (the turn
+                # was cut by max_tokens). The API requires a tool_result for each of them.
+                last_content = messages[-1].get("content", []) if messages else []
+                pending = [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": b.get("id", "unknown"),
+                        "content": json.dumps({"ok": False, "error": "Not executed: no tool calls left."}),
+                    }
+                    for b in (last_content if isinstance(last_content, list) else [])
+                    if isinstance(b, dict) and b.get("type") == "tool_use"
+                ]
+                messages.append({"role": "user", "content": pending + [note_blk]})
+            tool_sequence.append("harness_check:revise")
+            n_rev = max(1, int(revision_turns))
+            for rev_idx in range(n_rev):
+                last_rev = rev_idx == n_rev - 1
+                if last_rev and rev_idx > 0:
+                    messages[-1]["content"].append(
+                        {
+                            "type": "text",
+                            "text": "Final turn: no further tool calls are allowed. Output your final JSON answer now.",
+                        }
+                    )
+                resp = client.create_message(
+                    model=model,
+                    system=system,
+                    messages=messages,
+                    max_tokens=max_tokens_per_turn,
+                    tools=tools,
+                    tool_choice={"type": "none"} if last_rev else None,
+                    thinking_budget=thinking_budget,
+                    thinking_mode=thinking_mode,
+                    effort=effort,
+                )
+                usage = resp.get("usage", {})
+                total_in += int(usage.get("input_tokens", 0))
+                total_out += int(usage.get("output_tokens", 0))
+                total_cache_write += int(usage.get("cache_creation_input_tokens", 0))
+                total_cache_read += int(usage.get("cache_read_input_tokens", 0))
+                out_det = usage.get("output_tokens_details") or {}
+                if isinstance(out_det, dict):
+                    total_think += int(out_det.get("thinking_tokens", 0))
+                total_cost += float(resp.get("_pilot_cost_usd", 0.0))
+                sr = str(resp.get("stop_reason", ""))
+                stop_reasons.append(sr)
+                if sr == "max_tokens":
+                    truncated_turns += 1
+                turns_used += 1
+                content = resp.get("content", [])
+                tool_uses = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
+                if last_rev or not tool_uses or sr != "tool_use":
+                    final_text = _extract_text_blocks(resp)
+                    break
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content": _exec_tools(tool_uses, turns_used - 1)})
+
     return {
+        "harness_check": harness_check,
+        "tool_log": tool_log,
         "final_text": final_text,
         "final_excerpt": final_text[:240],
         "tool_sequence": tool_sequence,
@@ -1437,6 +1538,47 @@ def run_exp1_trial(
 # ==============================================================================
 # EXPERIMENT 2: C_inv COMPUTATIONAL BLACKWELL INVERSION (BUDGET-PHASE CURVE)
 # ==============================================================================
+# Experiment 2 protocols (mitigation test added after the main study):
+#   standard      : original prompt and budget.
+#   verify_first  : same budget; the prompt tells the agent to test its candidate rule on
+#                   the oracle and to trust the oracle on any disagreement.
+#   harness_check : the agent gets one turn and EXP2_CHECK_K queries fewer; the harness then
+#                   tests the answer on EXP2_CHECK_K fresh oracle queries and, on a mismatch or
+#                   an invalid answer, returns those queries for one tool-free revision turn.
+#                   Total turns and total queries equal the standard protocol.
+#   harness_check_tools : the agent keeps all its turns and gets EXP2_CHECK_K queries fewer; the
+#                   same check runs after its answer. On a failed check the check queries are
+#                   appended to `queries.json` and the agent gets EXP2_REVISION_TURNS more turns,
+#                   all but the last with tools. Total queries equal the standard protocol; the
+#                   extra turns are spent only when the check fails.
+EXP2_PROTOCOLS = ("standard", "verify_first", "harness_check", "harness_check_tools")
+EXP2_CHECK_PROTOCOLS = ("harness_check", "harness_check_tools")
+EXP2_CHECK_K = 10
+EXP2_REVISION_TURNS = 3
+VERIFY_FIRST_NOTE = (
+    "Verification requirement: treat any rule you derive from reading code or weights as a "
+    "candidate only. Before you answer, test your candidate rule against oracle outputs on at "
+    "least 10 inputs (for example with `query_oracle_random`) and compare its predictions with "
+    "the returned outputs. If any oracle output disagrees with the candidate, discard it and "
+    "determine the rule from the oracle data instead. The oracle is the ground truth.\n"
+)
+
+
+def predict_rule_outputs(task_type: str, supp: Sequence[int], sgns: Sequence[int], X: np.ndarray) -> np.ndarray:
+    """Outputs of a predicted rule on inputs X; mirrors baselines.score_rule_prediction."""
+    sg = [1 if int(v) >= 0 else -1 for v in sgns]
+    if task_type == "dtree2" and len(supp) == 3:
+        r, lp, ln = supp
+        return np.where((sg[0] * X[:, r]) > 0, (sg[1] * X[:, lp]) > 0, (sg[2] * X[:, ln]) > 0).astype(np.int8)
+    if task_type == "dlist3" and len(supp) == 3:
+        i1, i2, i3 = supp
+        return ((4 * sg[0] * X[:, i1] - 2 * sg[1] * X[:, i2] + sg[2] * X[:, i3] + 2) > 0).astype(np.int8)
+    acc = np.zeros(X.shape[0], dtype=np.int32)
+    for idx, sign in zip(supp, sg):
+        acc += sign * X[:, idx]
+    return (acc > 0).astype(np.int8)
+
+
 def run_exp2_trial(
     *,
     client: Any,
@@ -1453,10 +1595,16 @@ def run_exp2_trial(
     q_max: int = 80,
     task_type: str = "majority3",
     max_tokens_override: int = 0,
+    protocol: str = "standard",
+    log_tool_inputs: bool = False,
 ) -> Dict[str, Any]:
+    if protocol not in EXP2_PROTOCOLS:
+        raise ValueError(f"Unknown protocol={protocol}")
     inst = generate_blackwell_inv_instance(
         n=n, support_size=support_size, variant=variant, seed=seed, task_type=task_type
     )
+    # Queries the agent may spend itself; the harness check uses the rest.
+    q_agent = q_max - EXP2_CHECK_K if protocol in EXP2_CHECK_PROTOCOLS else q_max
 
     # Budget tracks mapping the phase curve Delta_WB(B):
     #   - matched_total_budget    : tight equal budget (3t BB / 3t WB)
@@ -1492,7 +1640,7 @@ def run_exp2_trial(
             "    if s_root * x[root] > 0: return 1 if s_pos * x[leaf_pos] > 0 else 0\n"
             "    else:                    return 1 if s_neg * x[leaf_neg] > 0 else 0\n"
             f"where root, leaf_pos, leaf_neg are distinct indices in 0..{n-1} and each sign is in {{-1, +1}}.\n"
-            f"You have black-box oracle tools (`query_oracle_random` and `query_oracle`, total budget {q_max} queries) "
+            f"You have black-box oracle tools (`query_oracle_random` and `query_oracle`, total budget {q_agent} queries) "
             "and a Python 3 sandbox (`run_python`, with numpy and scipy; all oracle responses are stored in `queries.json`).\n"
         )
         json_hint = 'Conclude with JSON: {"support": [root, leaf_pos, leaf_neg], "signs": [s_root, s_pos, s_neg]}.'
@@ -1510,7 +1658,7 @@ def run_exp2_trial(
             "    if s_2 * x[i_2] > 0: return 0\n"
             "    return 1 if s_3 * x[i_3] > 0 else 0\n"
             f"where i_1, i_2, i_3 are distinct indices in 0..{n-1} and each s_j is in {{-1, +1}}.\n"
-            f"You have black-box oracle tools (`query_oracle_random` and `query_oracle`, total budget {q_max} queries) "
+            f"You have black-box oracle tools (`query_oracle_random` and `query_oracle`, total budget {q_agent} queries) "
             "and a Python 3 sandbox (`run_python`, with numpy and scipy; all oracle responses are stored in `queries.json`).\n"
         )
         json_hint = 'Conclude with JSON: {"support": [i1, i2, i3], "signs": [s1, s2, s3]}.'
@@ -1526,13 +1674,54 @@ def run_exp2_trial(
             f"uniform random inputs as a {support_size}-variable majority rule:\n"
             "    f(x) = 1 if (s_1 * x[i_1] + s_2 * x[i_2] + s_3 * x[i_3]) > 0 else 0,\n"
             f"where i_1 < i_2 < i_3 are distinct indices in 0..{n-1} and each s_j is in {{-1, +1}}.\n"
-            f"You have black-box oracle tools (`query_oracle_random` and `query_oracle`, total budget {q_max} queries) "
+            f"You have black-box oracle tools (`query_oracle_random` and `query_oracle`, total budget {q_agent} queries) "
             "and a Python 3 sandbox (`run_python`, with numpy and scipy; all oracle responses are stored in `queries.json`).\n"
         )
         json_hint = 'Conclude with JSON: {"support": [i1, i2, i3], "signs": [s1, s2, s3]}.'
 
+    check_state: Dict[str, Any] = {}
+
+    def _final_check(text: str) -> Optional[str]:
+        supp_c, sgns_c, ok_c = parse_exp2_rule(text, n=n, support_size=support_size)
+        rng_c = np.random.default_rng(900_000 + int(seed))
+        X_c = rng_c.choice([-1, 1], size=(EXP2_CHECK_K, n)).astype(np.int8)
+        y_c = inst.eval_inv(X_c).astype(np.int8)
+        check_state["first_support"] = list(supp_c)
+        check_state["first_signs"] = list(sgns_c)
+        check_state["first_parse_ok"] = bool(ok_c)
+        if ok_c:
+            y_hat = predict_rule_outputs(task_type, supp_c, sgns_c, X_c)
+            if np.array_equal(y_hat, y_c):
+                check_state["result"] = "pass"
+                return None
+            check_state["result"] = "mismatch"
+            verdict = "it disagrees with at least one of them"
+        else:
+            check_state["result"] = "invalid"
+            verdict = "it was not valid JSON in the required format"
+        pairs = [{"x": [int(v) for v in x], "y": int(y)} for x, y in zip(X_c, y_c)]
+        if protocol == "harness_check_tools":
+            # Make the check queries available to the agent's code without charging its budget.
+            check_state["queries_before_check"] = oracle.queries_used
+            oracle.max_queries += EXP2_CHECK_K
+            oracle.query([[int(v) for v in x] for x in X_c])
+            return (
+                f"Verification step: your answer was checked against {EXP2_CHECK_K} fresh oracle queries and {verdict}. "
+                "The oracle outputs are the ground truth:\n"
+                + json.dumps(pairs)
+                + f"\nThese {EXP2_CHECK_K} queries were also appended to `queries.json`. You have "
+                f"{EXP2_REVISION_TURNS - 1} more turns in which you may use your tools, followed by one final "
+                "turn for the corrected answer as JSON in the required format."
+            )
+        return (
+            f"Verification step: your answer was checked against {EXP2_CHECK_K} fresh oracle queries and {verdict}. "
+            "The oracle outputs are the ground truth:\n"
+            + json.dumps(pairs)
+            + "\nGive a corrected final answer now as JSON in the required format. No tool calls are allowed."
+        )
+
     with IsolatedPythonSandbox(timeout_s=10.0) as sbx:
-        oracle = MeteredOracle(inst, max_queries=q_max, queries_json_path=sbx.queries_json_path)
+        oracle = MeteredOracle(inst, max_queries=q_agent, queries_json_path=sbx.queries_json_path)
 
         if mode == "BB":
             wb_note = "Access mode: BLACK-BOX ONLY (oracle + Python workspace).\n"
@@ -1558,7 +1747,8 @@ def run_exp2_trial(
             else:
                 raise ValueError(f"Unknown variant={variant}")
 
-        user_prompt = base_prompt + wb_note + json_hint
+        protocol_note = VERIFY_FIRST_NOTE if protocol == "verify_first" else ""
+        user_prompt = base_prompt + wb_note + protocol_note + json_hint
 
         res = run_agent_loop(
             client=client,
@@ -1568,16 +1758,38 @@ def run_exp2_trial(
             oracle=oracle,
             sandbox=sbx,
             allow_python=True,
-            max_turns=max_turns,
+            max_turns=(max_turns - 1 if protocol == "harness_check" else max_turns),
+            revision_turns=(EXP2_REVISION_TURNS if protocol == "harness_check_tools" else 1),
             max_tokens_per_turn=max_tokens,
             thinking_budget=thinking_budget,
             thinking_mode=thinking_mode,
             effort=effort,
+            log_tool_inputs=log_tool_inputs,
+            final_check=(_final_check if protocol in EXP2_CHECK_PROTOCOLS else None),
         )
+        oracle_history = [
+            {"x": "".join("1" if int(v) > 0 else "0" for v in h["x"]), "y": int(h["y"])} for h in oracle.history
+        ]
 
     pred_supp, pred_sgns, parse_ok = parse_exp2_rule(res["final_text"], n=n, support_size=support_size)
     metrics = score_rule_prediction(inst, pred_supp, pred_sgns)
+    extra: Dict[str, Any] = {}
+    if protocol != "standard":
+        extra["protocol"] = protocol
+    if protocol == "harness_check_tools":
+        extra["revision_turns"] = EXP2_REVISION_TURNS
+        extra["queries_before_check"] = check_state.get("queries_before_check", res["queries_used"])
+    if protocol in EXP2_CHECK_PROTOCOLS:
+        extra["check_queries"] = EXP2_CHECK_K
+        extra["check_result"] = check_state.get("result", "")
+        extra["first_pred_support"] = check_state.get("first_support", [])
+        extra["first_pred_signs"] = check_state.get("first_signs", [])
+        extra["first_parse_ok"] = check_state.get("first_parse_ok", False)
+    if log_tool_inputs:
+        extra["tool_log"] = res["tool_log"]
+        extra["oracle_history"] = oracle_history
     return {
+        **extra,
         "experiment": "exp2_blackwell",
         "model": model,
         "thinking_budget": thinking_budget,
@@ -1700,12 +1912,15 @@ def build_exp2_schedule(
     skip_bb: bool = False,
     only_bb: bool = False,
     max_tokens_override: int = 0,
+    protocol: str = "standard",
 ) -> List[Dict[str, Any]]:
     """Build matched-pair BB vs WB schedule (identical seeds across BB and all WB variants)."""
     jobs: List[Dict[str, Any]] = []
     ef_tag = f"|tm={thinking_mode}|ef={effort or 'default'}"
     tt_tag = "" if task_type == "majority3" else f"|tt={task_type}"
     mt_tag = "" if max_tokens_override <= 0 else f"|mt={max_tokens_override}"
+    if protocol != "standard":
+        mt_tag += f"|pr={protocol}"
     for model in models:
         for track in budget_tracks:
             for i in range(n_seeds):
@@ -1722,6 +1937,7 @@ def build_exp2_schedule(
                             "variant": "wb_inv_code",
                             "seed": seed,
                             "task_type": task_type,
+                            "protocol": protocol,
                         }
                     )
                 if not only_bb:
@@ -1736,6 +1952,7 @@ def build_exp2_schedule(
                                 "variant": var,
                                 "seed": seed,
                                 "task_type": task_type,
+                                "protocol": protocol,
                             }
                         )
     return jobs
@@ -1801,6 +2018,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--skip-bb", action="store_true", help="Skip BB baseline in Exp 2 schedule.")
     parser.add_argument("--only-bb", action="store_true", help="Run ONLY BB baseline in Exp 2 schedule.")
     parser.add_argument("--max-tokens-override", type=int, default=0, help="Override max_tokens_per_turn for Exp 2 (e.g. 8192).")
+    parser.add_argument(
+        "--protocol",
+        default="standard",
+        choices=list(EXP2_PROTOCOLS),
+        help="Exp 2 protocol: standard, verify_first (prompt-level), harness_check (answer tested by the harness) or harness_check_tools (same check, revision turns with tools).",
+    )
+    parser.add_argument(
+        "--log-tool-inputs",
+        action="store_true",
+        help="Store the Python code of each tool call and the queried inputs in every Exp 2 record.",
+    )
     parser.add_argument("--resume-from", default="", help="Comma-separated extra read-only JSONL files to skip already-completed keys.")
     parser.add_argument("--workers", type=int, default=1, help="Concurrent worker threads for API calls.")
     parser.add_argument("--min-interval-s", type=float, default=0.0, help="Min seconds between Gemini API calls (for tight TPM models like Gemma 4).")
@@ -1875,6 +2103,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             skip_bb=args.skip_bb,
             only_bb=args.only_bb,
             max_tokens_override=args.max_tokens_override,
+            protocol=args.protocol,
         ):
             if job["run_key"] in done:
                 skipped += 1
@@ -1912,6 +2141,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 seed=job["seed"],
                 task_type=job.get("task_type", "majority3"),
                 max_tokens_override=args.max_tokens_override,
+                protocol=job.get("protocol", "standard"),
+                log_tool_inputs=args.log_tool_inputs,
             )
         if args.max_tokens_override > 0:
             rec["max_tokens_override"] = int(args.max_tokens_override)

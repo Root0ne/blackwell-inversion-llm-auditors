@@ -46,6 +46,8 @@ from pilot.generators import (
     generate_kxor_instance,
 )
 from pilot.runner import (
+    EXP2_CHECK_K,
+    EXP2_REVISION_TURNS,
     AnthropicClient,
     BudgetExceededError,
     apply_prompt_caching,
@@ -53,6 +55,7 @@ from pilot.runner import (
     main as runner_main,
     parse_exp1_decision,
     parse_exp2_rule,
+    run_exp2_trial,
 )
 from pilot.sandbox import IsolatedPythonSandbox, MeteredOracle
 from pilot.validators import validate_blackwell_inv_instance, validate_kxor_instance
@@ -336,6 +339,73 @@ class TestStatisticsAndParsers(unittest.TestCase):
                 messages=[{"role": "user", "content": "hi"}],
                 max_tokens=16,
             )
+
+
+class _ScriptedClient:
+    """Answers with the decoy rule first; after a failed check it uses tools when allowed, then answers correctly."""
+
+    def __init__(self, wrong: dict, right: dict) -> None:
+        self.wrong, self.right = wrong, right
+        self.tool_choices: list = []
+
+    def create_message(self, *, messages, tool_choice=None, **_kw):
+        self.tool_choices.append(tool_choice)
+        n_assistant = sum(1 for m in messages if m.get("role") == "assistant")
+
+        def text(obj: dict) -> dict:
+            return {"content": [{"type": "text", "text": json.dumps(obj)}], "stop_reason": "end_turn", "usage": {}}
+
+        def tool(name: str, inp: dict) -> dict:
+            block = {"type": "tool_use", "id": f"t{n_assistant}", "name": name, "input": inp}
+            return {"content": [block], "stop_reason": "tool_use", "usage": {}}
+
+        if n_assistant == 0:
+            return text(self.wrong)
+        if tool_choice == {"type": "none"}:
+            return text(self.right)
+        if n_assistant == 1:
+            return tool("run_python", {"code": "import json\nprint(len(json.load(open('queries.json'))['records']))"})
+        return tool("query_oracle_random", {"count": 5, "seed": 1})
+
+
+class TestAnswerCheckProtocols(unittest.TestCase):
+    def _run(self, protocol: str):
+        inst = generate_blackwell_inv_instance(n=40, support_size=3, variant="wb_inv_code", seed=5000)
+        wrong = {"support": list(inst.decoy_support), "signs": [1, 1, 1]}
+        right = {"support": list(inst.true_support), "signs": list(inst.true_signs)}
+        client = _ScriptedClient(wrong, right)
+        rec = run_exp2_trial(
+            client=client,
+            model="scripted",
+            variant="wb_inv_code",
+            mode="WB",
+            budget_track="matched_medium_budget",
+            seed=5000,
+            protocol=protocol,
+            log_tool_inputs=True,
+        )
+        return inst, client, rec
+
+    def test_tool_free_revision_turn(self) -> None:
+        inst, client, rec = self._run("harness_check")
+        self.assertEqual(rec["check_result"], "mismatch")
+        self.assertEqual(rec["first_pred_support"], list(inst.decoy_support))
+        self.assertEqual(rec["turns"], 2)
+        self.assertEqual(client.tool_choices, [None, {"type": "none"}])
+        self.assertEqual(rec["pred_support"], list(inst.true_support))
+        self.assertEqual(rec["queries_used"], 0)
+
+    def test_revision_turns_with_tools(self) -> None:
+        inst, client, rec = self._run("harness_check_tools")
+        self.assertEqual(rec["check_result"], "mismatch")
+        self.assertEqual(rec["turns"], 1 + EXP2_REVISION_TURNS)
+        self.assertEqual(client.tool_choices, [None, None, None, {"type": "none"}])
+        self.assertEqual(rec["pred_support"], list(inst.true_support))
+        # The check queries are visible to the agent's code but are not charged to its budget.
+        self.assertEqual(rec["queries_before_check"], 0)
+        self.assertEqual(rec["tool_log"][0]["stdout"].strip(), str(EXP2_CHECK_K))
+        self.assertEqual(rec["queries_used"], EXP2_CHECK_K + 5)
+        self.assertEqual(rec["tool_sequence"], ["harness_check:revise", "run_python:ok", "query_oracle_random:ok"])
 
 
 class TestEndToEndDryRunPipeline(unittest.TestCase):

@@ -1,0 +1,389 @@
+=== MECHANISM ANALYSIS: EXPERIMENT 2 ===
+Exp 2 records loaded: 4379 (from results_c2_pilot.jsonl, results_c3_expansion.jsonl)
+Bootstrap draws=10000, permutation draws=10000, base seed=2026. Acc of an invalid answer = 0.50.
+
+##### PART 1: anti-transparent code vs refutable control #####
+
+[1a] Per-cell paired Acc (code minus refutable):
+    model                      effort  track                  task        mt   n    code   refut    diff  95% CI
+    claude-haiku-5-5           high    matched_medium_budget  majority3    0  25   0.706   0.685  +0.021  [-0.087, +0.125]
+    claude-haiku-5-5           low     matched_medium_budget  majority3    0  25   0.920   0.862  +0.058  [-0.075, +0.183]
+    claude-haiku-5-5           medium  matched_medium_budget  dlist3       0  20   0.748   0.679  +0.069  [-0.071, +0.202]
+    claude-haiku-5-5           medium  matched_medium_budget  majority3    0  25   0.867   0.809  +0.058  [-0.068, +0.182]
+    claude-haiku-5-5           medium  matched_total_budget   majority3    0  25   0.566   0.566  -0.000  [-0.102, +0.102]
+    claude-opus-4-6            medium  matched_medium_budget  majority3    0  25   0.642   0.663  -0.020  [-0.146, +0.106]
+    claude-opus-4-8            medium  matched_medium_budget  majority3    0  25   0.916   0.882  +0.034  [-0.074, +0.142]
+    claude-sonnet-5-5          high    matched_medium_budget  majority3    0  25   0.844   0.892  -0.047  [-0.163, +0.065]
+    claude-sonnet-5-5          low     matched_medium_budget  majority3    0  25   0.672   0.769  -0.097  [-0.193, -0.003]
+    claude-sonnet-5-5          medium  matched_medium_budget  dlist3       0  20   0.668   0.580  +0.088  [-0.037, +0.211]
+    claude-sonnet-5-5          medium  matched_medium_budget  majority3    0  25   0.761   0.788  -0.027  [-0.156, +0.104]
+    gemini-3.1-flash-lite      medium  matched_medium_budget  majority3    0  20   0.682   0.752  -0.069  [-0.227, +0.095]
+    gemini-3.5-flash-lite      medium  matched_medium_budget  dlist3       0  20   0.660   0.759  -0.099  [-0.251, +0.061]
+    gemini-3.5-flash-lite      medium  matched_medium_budget  majority3    0  25   0.852   0.819  +0.033  [-0.080, +0.145]
+    gemini-3.8-flash           medium  matched_medium_budget  majority3    0  25   0.897   0.876  +0.021  [-0.088, +0.129]
+    gemini-4-carbon            medium  matched_medium_budget  majority3    0  25   1.000   1.000  +0.000  [+0.000, +0.000]
+    gemma-4-26b-a4b-it         medium  matched_medium_budget  majority3    0  10   0.604   0.554  +0.050  [-0.010, +0.155]
+    gemma-4-31b-it             medium  matched_medium_budget  majority3    0  15   0.624   0.684  -0.060  [-0.229, +0.110]
+
+  [1b] Pooled Acc difference, code minus refutable:
+    cells=18 pairs=405 mean diff=+0.0006 (mean of cell means +0.0007)
+    stratified bootstrap (cells fixed): 90% [-0.023, +0.024]  95% [-0.027, +0.029]
+    cluster bootstrap (cells resampled): 90% [-0.031, +0.033]  95% [-0.038, +0.039]
+    sign-flip permutation p (two-sided) = 0.9698
+    equivalent at margin 0.05: stratified=YES  cluster=YES
+    equivalent at margin 0.10: stratified=YES  cluster=YES
+
+  [1c] Pooled trap-rate difference, code minus refutable:
+    cells=18 pairs=405 mean diff=+0.0123 (mean of cell means +0.0239)
+    stratified bootstrap (cells fixed): 90% [-0.035, +0.059]  95% [-0.044, +0.069]
+    cluster bootstrap (cells resampled): 90% [-0.049, +0.074]  95% [-0.060, +0.086]
+    sign-flip permutation p (two-sided) = 0.7413
+    equivalent at margin 0.05: stratified=no  cluster=no
+    equivalent at margin 0.10: stratified=YES  cluster=YES
+
+[1d] Sensitivity contrast (same 18 cells): refutable minus short control, per cell:
+    model                      effort  track                  task        mt   n   refut   short    diff  95% CI
+    claude-haiku-5-5           high    matched_medium_budget  majority3    0  25   0.685   1.000  -0.315  [-0.407, -0.216]
+    claude-haiku-5-5           low     matched_medium_budget  majority3    0  25   0.862   0.936  -0.073  [-0.194, +0.052]
+    claude-haiku-5-5           medium  matched_medium_budget  dlist3       0  20   0.679   0.840  -0.161  [-0.320, +0.009]
+    claude-haiku-5-5           medium  matched_medium_budget  majority3    0  25   0.809   0.978  -0.169  [-0.275, -0.058]
+    claude-haiku-5-5           medium  matched_total_budget   majority3    0  25   0.566   0.880  -0.314  [-0.426, -0.186]
+    claude-opus-4-6            medium  matched_medium_budget  majority3    0  25   0.663   0.795  -0.132  [-0.259, +0.002]
+    claude-opus-4-8            medium  matched_medium_budget  majority3    0  25   0.882   0.980  -0.098  [-0.196, -0.003]
+    claude-sonnet-5-5          high    matched_medium_budget  majority3    0  25   0.892   0.923  -0.031  [-0.123, +0.063]
+    claude-sonnet-5-5          low     matched_medium_budget  majority3    0  25   0.769   0.858  -0.089  [-0.212, +0.041]
+    claude-sonnet-5-5          medium  matched_medium_budget  dlist3       0  20   0.580   0.683  -0.104  [-0.207, +0.000]
+    claude-sonnet-5-5          medium  matched_medium_budget  majority3    0  25   0.788   0.964  -0.176  [-0.280, -0.071]
+    gemini-3.1-flash-lite      medium  matched_medium_budget  majority3    0  20   0.752   0.635  +0.117  [-0.040, +0.266]
+    gemini-3.5-flash-lite      medium  matched_medium_budget  dlist3       0  20   0.759   0.552  +0.208  [+0.072, +0.337]
+    gemini-3.5-flash-lite      medium  matched_medium_budget  majority3    0  25   0.819   0.682  +0.137  [-0.013, +0.283]
+    gemini-3.8-flash           medium  matched_medium_budget  majority3    0  25   0.876   1.000  -0.124  [-0.211, -0.041]
+    gemini-4-carbon            medium  matched_medium_budget  majority3    0  25   1.000   1.000  +0.000  [+0.000, +0.000]
+    gemma-4-26b-a4b-it         medium  matched_medium_budget  majority3    0  10   0.554   0.551  +0.003  [-0.147, +0.152]
+    gemma-4-31b-it             medium  matched_medium_budget  majority3    0  15   0.684   0.637  +0.047  [-0.123, +0.211]
+
+  Pooled Acc difference, refutable minus short:
+    cells=18 pairs=405 mean diff=-0.0807 (mean of cell means -0.0709)
+    stratified bootstrap (cells fixed): 90% [-0.104, -0.057]  95% [-0.109, -0.052]
+    cluster bootstrap (cells resampled): 90% [-0.136, -0.020]  95% [-0.146, -0.010]
+    sign-flip permutation p (two-sided) = 0.0001
+    equivalent at margin 0.05: stratified=no  cluster=no
+    equivalent at margin 0.10: stratified=no  cluster=no
+
+  Pooled trap-rate difference, refutable minus short:
+    cells=18 pairs=405 mean diff=+0.2000 (mean of cell means +0.1906)
+    stratified bootstrap (cells fixed): 90% [+0.156, +0.242]  95% [+0.148, +0.252]
+    cluster bootstrap (cells resampled): 90% [+0.109, +0.291]  95% [+0.093, +0.311]
+    sign-flip permutation p (two-sided) = 0.0001
+    equivalent at margin 0.05: stratified=no  cluster=no
+    equivalent at margin 0.10: stratified=no  cluster=no
+
+[1e] Invalid answers among the 405 pairs: code=33 refut=40 pairs with either invalid=63
+  Pooled Acc difference, code minus refutable, both answers valid JSON:
+    cells=18 pairs=342 mean diff=-0.0050 (mean of cell means -0.0220)
+    stratified bootstrap (cells fixed): 90% [-0.030, +0.020]  95% [-0.035, +0.025]
+    cluster bootstrap (cells resampled): 90% [-0.039, +0.027]  95% [-0.046, +0.034]
+    sign-flip permutation p (two-sided) = 0.7529
+    equivalent at margin 0.05: stratified=YES  cluster=YES
+    equivalent at margin 0.10: stratified=YES  cluster=YES
+
+##### PART 2: what the agents did #####
+
+Main condition (matched_medium_budget, majority3, effort medium/default, no max_tokens override): counts per arm {'BB': 345, 'wb_clean': 345, 'wb_decoy_trivial_guard': 345, 'wb_decoy_long_refutable_guard': 220, 'wb_inv_code': 345, 'wb_inv_relu': 345}
+Models (15); refutable control present for 10: claude-haiku-5-5, claude-opus-4-6, claude-opus-4-8, claude-sonnet-5-5, gemini-3.1-flash-lite, gemini-3.5-flash-lite, gemini-3.8-flash, gemini-4-carbon, gemma-4-26b-a4b-it, gemma-4-31b-it
+
+[2a] Per model x arm. q=mean queries, med=median queries, q0=share with zero oracle queries, py=mean python calls,
+     turns=mean turns, trap=matches_decoy rate (BB: chance baseline), acc=mean Acc, json=valid-JSON rate
+    model                      arm       n      q   med    q0    py turns  trap   acc  json
+    claude-fable-5-2           BB       25   54.2  60.0  0.00  2.20  3.72  0.00 0.966  1.00
+    claude-fable-5-2           clean    25   52.8  60.0  0.00  3.04  4.64  0.00 1.000  1.00
+    claude-fable-5-2           short    25   28.0   0.0  0.52  3.00  4.00  0.00 1.000  1.00
+    claude-fable-5-2           code     25   34.4  40.0  0.44  3.12  4.12  0.00 1.000  1.00
+    claude-fable-5-2           weights  25   42.4  40.0  0.08  3.16  4.64  0.00 1.000  1.00
+
+    claude-haiku-4-5-20251001  BB       25   80.0  80.0  0.00  3.00  5.00  0.00 0.672  0.36
+    claude-haiku-4-5-20251001  clean    25    9.2  10.0  0.04  3.00  5.00  0.00 1.000  1.00
+    claude-haiku-4-5-20251001  short    25   24.6  20.0  0.00  3.00  5.00  0.68 0.506  0.68
+    claude-haiku-4-5-20251001  code     25   19.8  20.0  0.00  2.96  5.00  0.44 0.508  0.44
+    claude-haiku-4-5-20251001  weights  25    4.8   0.0  0.88  3.88  5.00  0.00 0.506  0.40
+
+    claude-haiku-5-5           BB       25   66.4  80.0  0.04  2.60  3.68  0.00 0.972  0.96
+    claude-haiku-5-5           clean    25   54.8  60.0  0.00  3.84  4.84  0.00 1.000  1.00
+    claude-haiku-5-5           short    25   44.4  40.0  0.12  4.00  5.00  0.04 0.978  1.00
+    claude-haiku-5-5           refut    25   50.6  60.0  0.20  3.88  4.88  0.36 0.809  0.96
+    claude-haiku-5-5           code     25   45.6  60.0  0.28  3.84  4.88  0.28 0.867  1.00
+    claude-haiku-5-5           weights  25   16.0   0.0  0.64  4.00  5.00  0.00 0.991  1.00
+
+    claude-opus-4-6            BB       25   80.0  80.0  0.00  3.00  5.00  0.00 0.928  1.00
+    claude-opus-4-6            clean    25    0.0   0.0  1.00  1.00  2.00  0.00 1.000  1.00
+    claude-opus-4-6            short    25   30.9   0.0  0.56  3.40  4.84  0.12 0.795  0.72
+    claude-opus-4-6            refut    25   40.0  50.0  0.44  3.44  5.00  0.24 0.663  0.56
+    claude-opus-4-6            code     25   40.2  50.0  0.40  3.28  4.88  0.24 0.642  0.52
+    claude-opus-4-6            weights  25    0.0   0.0  1.00  4.00  5.00  0.00 1.000  1.00
+
+    claude-opus-4-8            BB       25   80.0  80.0  0.00  2.96  4.96  0.00 1.000  1.00
+    claude-opus-4-8            clean    25    0.0   0.0  1.00  1.00  2.00  0.00 1.000  1.00
+    claude-opus-4-8            short    25    6.4   0.0  0.92  3.60  4.68  0.00 0.980  1.00
+    claude-opus-4-8            refut    25    6.4   0.0  0.92  3.84  4.92  0.24 0.882  1.00
+    claude-opus-4-8            code     25    3.2   0.0  0.96  3.96  5.00  0.16 0.916  1.00
+    claude-opus-4-8            weights  25   13.0   0.0  0.76  2.56  3.64  0.00 1.000  1.00
+
+    claude-opus-5-5            BB       25   57.8  60.0  0.00  2.16  4.16  0.00 1.000  1.00
+    claude-opus-5-5            clean    25   32.8  30.0  0.00  3.56  4.60  0.00 1.000  1.00
+    claude-opus-5-5            short    25   25.2  30.0  0.20  3.56  4.60  0.00 1.000  1.00
+    claude-opus-5-5            code     25   36.0  40.0  0.04  3.68  5.00  0.00 1.000  1.00
+    claude-opus-5-5            weights  25   19.6  30.0  0.44  3.28  4.32  0.00 1.000  1.00
+
+    claude-sonnet-4-5-20250929 BB       25   57.2  60.0  0.00  3.00  5.00  0.00 0.882  0.80
+    claude-sonnet-4-5-20250929 clean    25    4.6   4.0  0.04  2.96  4.92  0.00 1.000  1.00
+    claude-sonnet-4-5-20250929 short    25   32.8  20.0  0.04  3.04  5.00  0.84 0.500  0.84
+    claude-sonnet-4-5-20250929 code     25   39.1  50.0  0.04  3.04  5.00  1.00 0.504  1.00
+    claude-sonnet-4-5-20250929 weights  25   20.8  30.0  0.44  3.44  5.00  0.00 0.489  0.16
+
+    claude-sonnet-4-6          BB       25   75.6  80.0  0.00  3.00  5.00  0.00 0.689  1.00
+    claude-sonnet-4-6          clean    25    0.0   0.0  1.00  1.00  2.00  0.00 1.000  1.00
+    claude-sonnet-4-6          short    25    6.4   0.0  0.92  3.80  4.88  0.24 0.884  1.00
+    claude-sonnet-4-6          code     25    2.0   0.0  0.96  3.96  5.00  0.12 0.943  1.00
+    claude-sonnet-4-6          weights  25    6.4   0.0  0.92  3.84  4.92  0.00 0.816  0.80
+
+    claude-sonnet-5-5          BB       25   80.0  80.0  0.00  2.92  4.92  0.00 0.971  1.00
+    claude-sonnet-5-5          clean    25   10.4   0.0  0.80  1.40  2.60  0.00 1.000  1.00
+    claude-sonnet-5-5          short    25   60.8  60.0  0.04  3.24  4.92  0.08 0.964  1.00
+    claude-sonnet-5-5          refut    25   76.0  80.0  0.00  3.12  4.92  0.40 0.788  1.00
+    claude-sonnet-5-5          code     25   75.2  80.0  0.00  3.16  5.00  0.44 0.761  1.00
+    claude-sonnet-5-5          weights  25   80.0  80.0  0.00  3.32  4.32  0.00 1.000  1.00
+
+    gemini-3.1-flash-lite      BB       20   22.6  20.0  0.25  2.50  4.40  0.00 0.511  0.55
+    gemini-3.1-flash-lite      clean    20    0.0   0.0  1.00  1.75  2.75  0.00 1.000  1.00
+    gemini-3.1-flash-lite      short    20    2.5   0.0  0.95  2.85  3.85  0.05 0.635  0.35
+    gemini-3.1-flash-lite      refut    20    3.2   0.0  0.90  3.70  4.70  0.15 0.752  0.75
+    gemini-3.1-flash-lite      code     20    8.0   0.0  0.90  4.00  4.95  0.15 0.682  0.65
+    gemini-3.1-flash-lite      weights  20    0.1   0.0  0.95  4.05  4.95  0.00 0.686  0.75
+
+    gemini-3.5-flash-lite      BB       25   55.4  50.0  0.00  3.60  5.00  0.00 0.500  0.40
+    gemini-3.5-flash-lite      clean    25    0.0   0.0  1.00  1.88  2.88  0.00 1.000  1.00
+    gemini-3.5-flash-lite      short    25    0.0   0.0  1.00  4.28  5.00  0.32 0.682  0.72
+    gemini-3.5-flash-lite      refut    25    2.0   0.0  0.96  3.88  4.80  0.20 0.819  0.88
+    gemini-3.5-flash-lite      code     25    0.0   0.0  1.00  4.04  4.92  0.16 0.852  0.88
+    gemini-3.5-flash-lite      weights  25    0.0   0.0  1.00  4.04  4.96  0.00 0.941  0.92
+
+    gemini-3.8-flash           BB       25    2.5   0.0  0.88  3.80  4.92  0.00 0.529  0.96
+    gemini-3.8-flash           clean    25    0.4   0.0  0.80  1.00  2.20  0.00 1.000  1.00
+    gemini-3.8-flash           short    25    2.1   2.0  0.40  3.36  5.00  0.00 1.000  1.00
+    gemini-3.8-flash           refut    25    0.5   0.0  0.92  3.92  5.00  0.16 0.876  0.92
+    gemini-3.8-flash           code     25    0.4   0.0  0.88  3.88  5.00  0.20 0.897  1.00
+    gemini-3.8-flash           weights  25    2.9   2.0  0.32  3.40  5.00  0.00 0.960  0.92
+
+    gemini-4-carbon            BB       25   28.9   5.0  0.40  2.00  3.92  0.00 0.650  0.72
+    gemini-4-carbon            clean    25    6.2   5.0  0.04  2.52  4.52  0.00 1.000  1.00
+    gemini-4-carbon            short    25    4.1   4.0  0.36  3.36  4.84  0.00 1.000  1.00
+    gemini-4-carbon            refut    25    6.9   5.0  0.20  3.48  4.96  0.00 1.000  1.00
+    gemini-4-carbon            code     25    7.9  10.0  0.16  3.52  5.00  0.00 1.000  1.00
+    gemini-4-carbon            weights  25    6.0   5.0  0.24  2.92  4.52  0.00 1.000  1.00
+
+    gemma-4-26b-a4b-it         BB       10   30.0   0.0  0.60  1.50  2.60  0.00 0.513  0.10
+    gemma-4-26b-a4b-it         clean    10    2.9   1.0  0.50  1.60  3.00  0.00 0.900  0.80
+    gemma-4-26b-a4b-it         short    10    1.0   0.0  0.90  1.80  2.90  0.10 0.551  0.20
+    gemma-4-26b-a4b-it         refut    10   31.0   0.0  0.60  2.80  4.20  0.10 0.554  0.20
+    gemma-4-26b-a4b-it         code     10   28.0   0.0  0.60  3.10  4.50  0.50 0.604  0.70
+    gemma-4-26b-a4b-it         weights  10    1.4   0.0  0.80  1.20  2.50  0.00 0.650  0.30
+
+    gemma-4-31b-it             BB       15   61.4  64.0  0.07  3.60  4.73  0.00 0.532  0.13
+    gemma-4-31b-it             clean    15    0.0   0.0  1.00  1.00  2.00  0.00 1.000  1.00
+    gemma-4-31b-it             short    15    1.3   0.0  0.67  2.13  3.47  0.07 0.637  0.40
+    gemma-4-31b-it             refut    15   22.0   3.0  0.40  3.27  4.67  0.27 0.684  0.67
+    gemma-4-31b-it             code     15   17.7   3.0  0.47  3.40  4.80  0.27 0.624  0.67
+    gemma-4-31b-it             weights  15   14.9   5.0  0.20  2.67  4.53  0.00 0.735  0.73
+
+    ALL                        BB      345   56.9  62.0  0.13  2.83  4.54  0.00 0.775  0.78
+    ALL                        clean   345   12.5   0.0  0.53  2.09  3.39  0.00 0.997  0.99
+    ALL                        short   345   19.5   2.0  0.48  3.33  4.64  0.18 0.826  0.84
+    ALL                        refut   220   23.9   0.0  0.55  3.59  4.85  0.22 0.803  0.84
+    ALL                        code    345   24.1   5.0  0.46  3.54  4.89  0.26 0.801  0.87
+    ALL                        weights 345   16.0   0.0  0.57  3.42  4.64  0.00 0.866  0.82
+
+[2b] Routes to the answer, main condition (by tools attempted in tool_sequence):
+  Opaque weights (wb_inv_relu) (n=345)
+    python_only        n=193 share=0.559 acc=0.849 exact_rule=0.70
+    python_and_oracle  n=148 share=0.429 acc=0.899 exact_rule=0.80
+    oracle_only        n=  0 share=0.000 acc=  n/a exact_rule=  n/a
+    no_tools           n=  4 share=0.012 acc=0.500 exact_rule=0.00
+    queries_used==0: n=198 share=0.574 acc=0.840;  queries_used>0: n=147 share=0.426 acc=0.901
+  Anti-transparent code (wb_inv_code), for comparison (n=345)
+    python_only        n=160 share=0.464 acc=0.878 exact_rule=0.76
+    python_and_oracle  n=185 share=0.536 acc=0.734 exact_rule=0.46
+    oracle_only        n=  0 share=0.000 acc=  n/a exact_rule=  n/a
+    no_tools           n=  0 share=0.000 acc=  n/a exact_rule=  n/a
+    queries_used==0: n=160 share=0.464 acc=0.878;  queries_used>0: n=185 share=0.536 acc=0.734
+  Black-box, for comparison (n=345)
+    python_only        n= 31 share=0.090 acc=0.511 exact_rule=0.00
+    python_and_oracle  n=298 share=0.864 acc=0.812 exact_rule=0.61
+    oracle_only        n=  3 share=0.009 acc=1.000 exact_rule=1.00
+    no_tools           n= 13 share=0.038 acc=0.500 exact_rule=0.00
+    queries_used==0: n=45 share=0.130 acc=0.508;  queries_used>0: n=300 share=0.870 acc=0.815
+  Opaque weights per model: share with zero oracle queries / share Python-only / Acc(zero-query) / Acc(queried)
+    claude-fable-5-2           n=25 q0=0.08 py_only=0.08 acc_q0=1.000 acc_q>0=1.000
+    claude-haiku-4-5-20251001  n=25 q0=0.88 py_only=0.88 acc_q0=0.507 acc_q>0=0.500
+    claude-haiku-5-5           n=25 q0=0.64 py_only=0.64 acc_q0=0.986 acc_q>0=1.000
+    claude-opus-4-6            n=25 q0=1.00 py_only=1.00 acc_q0=1.000 acc_q>0=  n/a
+    claude-opus-4-8            n=25 q0=0.76 py_only=0.76 acc_q0=1.000 acc_q>0=1.000
+    claude-opus-5-5            n=25 q0=0.44 py_only=0.44 acc_q0=1.000 acc_q>0=1.000
+    claude-sonnet-4-5-20250929 n=25 q0=0.44 py_only=0.44 acc_q0=0.475 acc_q>0=0.500
+    claude-sonnet-4-6          n=25 q0=0.92 py_only=0.92 acc_q0=0.843 acc_q>0=0.500
+    claude-sonnet-5-5          n=25 q0=0.00 py_only=0.00 acc_q0=  n/a acc_q>0=1.000
+    gemini-3.1-flash-lite      n=20 q0=0.95 py_only=0.95 acc_q0=0.696 acc_q>0=0.500
+    gemini-3.5-flash-lite      n=25 q0=1.00 py_only=1.00 acc_q0=0.941 acc_q>0=  n/a
+    gemini-3.8-flash           n=25 q0=0.32 py_only=0.32 acc_q0=1.000 acc_q>0=0.941
+    gemini-4-carbon            n=25 q0=0.24 py_only=0.24 acc_q0=1.000 acc_q>0=1.000
+    gemma-4-26b-a4b-it         n=10 q0=0.80 py_only=0.40 acc_q0=0.625 acc_q>0=0.750
+    gemma-4-31b-it             n=15 q0=0.20 py_only=0.13 acc_q0=0.703 acc_q>0=0.743
+
+[2c] Anti-transparent code: trapped vs untrapped
+
+  Main condition, stratified by model:
+    strata eligible (>= 3 trapped and >= 3 untrapped): 11 of 15; runs used: trapped=63 untrapped=182 (all runs: trapped=88 untrapped=257)
+    per stratum: n_trap n_untrap | mean q trapped / untrapped | zero-q share trapped / untrapped
+      claude-haiku-4-5-20251001                                     11  14 |   15.0 /   23.6 | 0.00 / 0.00
+      claude-haiku-5-5                                               7  18 |   48.6 /   44.4 | 0.14 / 0.33
+      claude-opus-4-6                                                6  19 |   43.3 /   39.2 | 0.33 / 0.42
+      claude-opus-4-8                                                4  21 |   20.0 /    0.0 | 0.75 / 1.00
+      claude-sonnet-4-6                                              3  22 |   16.7 /    0.0 | 0.67 / 1.00
+      claude-sonnet-5-5                                             11  14 |   76.4 /   74.3 | 0.00 / 0.00
+      gemini-3.1-flash-lite                                          3  17 |    0.0 /    9.4 | 1.00 / 0.88
+      gemini-3.5-flash-lite                                          4  21 |    0.0 /    0.0 | 1.00 / 1.00
+      gemini-3.8-flash                                               5  20 |    1.0 /    0.2 | 0.80 / 0.90
+      gemma-4-26b-a4b-it                                             5   5 |   56.0 /    0.0 | 0.20 / 1.00
+      gemma-4-31b-it                                                 4  11 |   28.2 /   13.8 | 0.00 / 0.64
+    pooled trapped minus untrapped (CMH-weighted within strata; naive = unstratified):
+      queries_used                strata=11 n= 63/182 trapped=   33.857 untrapped=   17.758 naive=  +16.099 stratified=   +6.290 95% CI [+0.236, +12.357] perm p=0.0571
+      zero_query                  strata=11 n= 63/182 trapped=    0.317 untrapped=    0.676 naive=   -0.358 stratified=   -0.163 95% CI [-0.252, -0.074] perm p=0.0010
+      python_calls                strata=11 n= 63/182 trapped=    3.349 untrapped=    3.725 naive=   -0.376 stratified=   -0.168 95% CI [-0.311, -0.028] perm p=0.0321
+      turns                       strata=11 n= 63/182 trapped=    4.952 untrapped=    4.923 naive=   +0.029 stratified=   +0.054 95% CI [-0.078, +0.166] perm p=0.4708
+      oracle_after_first_python   strata=11 n= 63/182 trapped=    0.683 untrapped=    0.324 naive=   +0.358 stratified=   +0.163 95% CI [+0.075, +0.251] perm p=0.0014
+      oracle_before_first_python  strata=11 n= 63/182 trapped=    0.000 untrapped=    0.000 naive=   +0.000 stratified=   +0.000 95% CI [+0.000, +0.000] perm p=1.0000
+      thinking_tokens             strata=10 n= 52/168 trapped= 1433.365 untrapped= 1220.012 naive= +213.353 stratified= +191.887 95% CI [-67.743, +444.741] perm p=0.1985
+      any_truncated_turn          strata=11 n= 63/182 trapped=    0.048 untrapped=    0.110 naive=   -0.062 stratified=   -0.097 95% CI [-0.148, -0.045] perm p=0.0087
+      truncated_turns             strata=11 n= 63/182 trapped=    0.048 untrapped=    0.110 naive=   -0.062 stratified=   -0.097 95% CI [-0.149, -0.045] perm p=0.0098
+
+  All Exp 2 cells, stratified by (model, effort, budget_track, task_type, max_tokens_override):
+    strata eligible (>= 3 trapped and >= 3 untrapped): 24 of 37; runs used: trapped=199 untrapped=345 (all runs: trapped=300 untrapped=556)
+    per stratum: n_trap n_untrap | mean q trapped / untrapped | zero-q share trapped / untrapped
+      claude-haiku-4-5-20251001|default|matched_medium_budget|majority3|0  11  14 |   15.0 /   23.6 | 0.00 / 0.00
+      claude-haiku-5-5|high|matched_medium_budget|majority3|0       14  11 |   22.9 /   18.2 | 0.57 / 0.64
+      claude-haiku-5-5|low|matched_medium_budget|majority3|0         4  21 |   70.0 /   50.0 | 0.00 / 0.05
+      claude-haiku-5-5|medium|matched_medium_budget|dlist3|0        10  10 |   52.0 /   30.0 | 0.10 / 0.60
+      claude-haiku-5-5|medium|matched_medium_budget|majority3|0      7  18 |   48.6 /   44.4 | 0.14 / 0.33
+      claude-haiku-5-5|medium|matched_total_budget|majority3|0      22   3 |   32.7 /   20.0 | 0.50 / 0.67
+      claude-opus-4-6|medium|matched_medium_budget|majority3|0       6  19 |   43.3 /   39.2 | 0.33 / 0.42
+      claude-opus-4-6|medium|matched_medium_budget|majority3|8192    6  12 |   35.0 /    6.7 | 0.50 / 0.92
+      claude-opus-4-8|high|matched_medium_budget|majority3|0         3  20 |    0.0 /    3.0 | 1.00 / 0.95
+      claude-opus-4-8|low|matched_medium_budget|majority3|0          3  20 |    0.0 /    0.0 | 1.00 / 1.00
+      claude-opus-4-8|medium|matched_medium_budget|majority3|0       4  21 |   20.0 /    0.0 | 0.75 / 1.00
+      claude-sonnet-4-6|medium|matched_medium_budget|majority3|0     3  22 |   16.7 /    0.0 | 0.67 / 1.00
+      claude-sonnet-5-5|high|matched_medium_budget|majority3|0       8  17 |   75.0 /   76.5 | 0.00 / 0.00
+      claude-sonnet-5-5|low|matched_medium_budget|majority3|0       17   8 |   71.8 /   60.0 | 0.00 / 0.12
+      claude-sonnet-5-5|medium|matched_medium_budget|dlist3|0       14   6 |   68.6 /   66.7 | 0.00 / 0.00
+      claude-sonnet-5-5|medium|matched_medium_budget|majority3|0    11  14 |   76.4 /   74.3 | 0.00 / 0.00
+      gemini-3.1-flash-lite|medium|matched_medium_budget|majority3|0   3  17 |    0.0 /    9.4 | 1.00 / 0.88
+      gemini-3.5-flash-lite|high|matched_medium_budget|majority3|0  11  14 |    0.0 /    0.0 | 1.00 / 1.00
+      gemini-3.5-flash-lite|low|matched_medium_budget|majority3|0   13  12 |    0.0 /    0.0 | 1.00 / 1.00
+      gemini-3.5-flash-lite|medium|matched_medium_budget|dlist3|0   11   9 |    4.5 /    0.0 | 0.91 / 1.00
+      gemini-3.5-flash-lite|medium|matched_medium_budget|majority3|0   4  21 |    0.0 /    0.0 | 1.00 / 1.00
+      gemini-3.8-flash|medium|matched_medium_budget|majority3|0      5  20 |    1.0 /    0.2 | 0.80 / 0.90
+      gemma-4-26b-a4b-it|medium|matched_medium_budget|majority3|0    5   5 |   56.0 /    0.0 | 0.20 / 1.00
+      gemma-4-31b-it|medium|matched_medium_budget|majority3|0        4  11 |   28.2 /   13.8 | 0.00 / 0.64
+    pooled trapped minus untrapped (CMH-weighted within strata; naive = unstratified):
+      queries_used                strata=24 n=199/345 trapped=   35.241 untrapped=   20.759 naive=  +14.482 stratified=   +6.895 95% CI [+3.225, +10.538] perm p=0.0013
+      zero_query                  strata=24 n=199/345 trapped=    0.417 untrapped=    0.652 naive=   -0.235 stratified=   -0.129 95% CI [-0.184, -0.074] perm p=0.0001
+      python_calls                strata=24 n=199/345 trapped=    3.317 untrapped=    3.768 naive=   -0.452 stratified=   -0.217 95% CI [-0.308, -0.129] perm p=0.0001
+      turns                       strata=24 n=199/345 trapped=    4.698 untrapped=    4.881 naive=   -0.183 stratified=   +0.024 95% CI [-0.054, +0.096] perm p=0.6186
+      oracle_after_first_python   strata=24 n=199/345 trapped=    0.583 untrapped=    0.348 naive=   +0.235 stratified=   +0.129 95% CI [+0.074, +0.183] perm p=0.0001
+      oracle_before_first_python  strata=24 n=199/345 trapped=    0.000 untrapped=    0.000 naive=   +0.000 stratified=   +0.000 95% CI [+0.000, +0.000] perm p=1.0000
+      thinking_tokens             strata=22 n=175/319 trapped= 1078.354 untrapped=  966.850 naive= +111.505 stratified= +251.652 95% CI [+122.308, +383.850] perm p=0.0007
+      any_truncated_turn          strata=24 n=199/345 trapped=    0.015 untrapped=    0.058 naive=   -0.043 stratified=   -0.041 95% CI [-0.063, -0.018] perm p=0.0110
+      truncated_turns             strata=24 n=199/345 trapped=    0.015 untrapped=    0.058 naive=   -0.043 stratified=   -0.041 95% CI [-0.063, -0.019] perm p=0.0119
+
+[2d] Ordering (anti-transparent code): oracle call listed after the first run_python call
+  main: runs=345 with python=345 oracle-after-first-python=185; trapped +0.761 (n=88), untrapped +0.459 (n=257)
+    share of runs whose tool calls all fit in one assistant turn (turns<=2): all=+0.009, among oracle-after-python runs=+0.000
+  all cells: runs=856 with python=856 oracle-after-first-python=466; trapped +0.633 (n=300), untrapped +0.496 (n=556)
+    share of runs whose tool calls all fit in one assistant turn (turns<=2): all=+0.006, among oracle-after-python runs=+0.000
+  (model-stratified version: metric 'oracle_after_first_python' in [2c])
+  Caveat: tool_sequence is a flat list without turn boundaries or call arguments; calls issued in the
+  same assistant turn are listed in emission order but were all issued before any result was seen.
+
+[2e] Trapped code runs that queried the oracle (main): 67 of 88 (>= 10 queries: 61)
+
+[2e] Trapped code runs that queried the oracle (all cells): 190 of 300 (>= 10 queries: 184)
+
+##### PART 3: offline replay of verification-first arbitration #####
+Instances regenerated with generators.generate_blackwell_inv_instance; all 4379 logged answers rescored with baselines.score_rule_prediction and matched the logged heldout_acc / matches_decoy / truth / decoy.
+Held-out scoring set: 100 points per instance.
+Rule: draw k fresh uniform inputs (separate RNG stream from the held-out points; first k of 20, so checks are nested),
+label them with the oracle function (eval_inv), keep the WB answer iff it is valid and agrees on all k;
+otherwise use the BB answer for the same (model, effort, budget_track, task_type, max_tokens_override, seed).
+WB runs per variant: {'wb_inv_code': 856, 'wb_decoy_long_refutable_guard': 405, 'wb_decoy_trivial_guard': 762, 'wb_inv_relu': 742, 'wb_clean': 673}; without a same-key BB partner (excluded): {'wb_inv_code': 18, 'wb_decoy_long_refutable_guard': 0, 'wb_decoy_trivial_guard': 20, 'wb_inv_relu': 0, 'wb_clean': 0}
+
+  Main condition:
+    variant                          k pairs     BB     WB    arb  arb-BB     95% CI (strat)  arb-WB  kept  trapRej  corrRej trapWB trapArb
+    wb_inv_code                      5   345  0.775  0.801  0.892  +0.117   [+0.100, +0.134]  +0.091  0.62 0.932( 88)   0/207  0.255   0.017
+    wb_inv_code                     10   345  0.775  0.801  0.896  +0.121   [+0.105, +0.137]  +0.095  0.60 1.000( 88)   0/207  0.255   0.000
+    wb_inv_code                     20   345  0.775  0.801  0.896  +0.121   [+0.105, +0.137]  +0.095  0.60 1.000( 88)   0/207  0.255   0.000
+    wb_decoy_long_refutable_guard    5   220  0.737  0.803  0.891  +0.154   [+0.129, +0.180]  +0.088  0.62 0.917( 48)   0/132  0.218   0.018
+    wb_decoy_long_refutable_guard   10   220  0.737  0.803  0.898  +0.161   [+0.137, +0.186]  +0.095  0.60 1.000( 48)   0/132  0.218   0.000
+    wb_decoy_long_refutable_guard   20   220  0.737  0.803  0.898  +0.161   [+0.137, +0.185]  +0.095  0.60 1.000( 48)   0/132  0.218   0.000
+    wb_decoy_trivial_guard           5   345  0.775  0.826  0.887  +0.112   [+0.096, +0.130]  +0.061  0.66 0.934( 61)   0/224  0.177   0.012
+    wb_decoy_trivial_guard          10   345  0.775  0.826  0.888  +0.113   [+0.096, +0.129]  +0.062  0.65 1.000( 61)   0/224  0.177   0.000
+    wb_decoy_trivial_guard          20   345  0.775  0.826  0.888  +0.113   [+0.097, +0.129]  +0.062  0.65 1.000( 61)   0/224  0.177   0.000
+    wb_inv_relu                      5   345  0.775  0.866  0.918  +0.144   [+0.127, +0.161]  +0.052  0.75    n/a(  0)   0/253  0.000   0.000
+    wb_inv_relu                     10   345  0.775  0.866  0.917  +0.142   [+0.126, +0.160]  +0.051  0.74    n/a(  0)   0/253  0.000   0.000
+    wb_inv_relu                     20   345  0.775  0.866  0.917  +0.143   [+0.125, +0.159]  +0.051  0.73    n/a(  0)   0/253  0.000   0.000
+    wb_clean                         5   345  0.775  0.997  0.997  +0.222   [+0.206, +0.239]  +0.000  0.99    n/a(  0)   0/343  0.000   0.000
+    wb_clean                        10   345  0.775  0.997  0.997  +0.222   [+0.205, +0.239]  +0.000  0.99    n/a(  0)   0/343  0.000   0.000
+    wb_clean                        20   345  0.775  0.997  0.997  +0.222   [+0.206, +0.239]  +0.000  0.99    n/a(  0)   0/343  0.000   0.000
+
+  All Exp 2 cells pooled:
+    variant                          k pairs     BB     WB    arb  arb-BB     95% CI (strat)  arb-WB  kept  trapRej  corrRej trapWB trapArb
+    wb_inv_code                      5   838  0.771  0.789  0.882  +0.111   [+0.099, +0.122]  +0.092  0.60 0.922(294)   0/464  0.351   0.027
+    wb_inv_code                     10   838  0.771  0.789  0.886  +0.115   [+0.104, +0.125]  +0.096  0.57 1.000(294)   0/464  0.351   0.000
+    wb_inv_code                     20   838  0.771  0.789  0.886  +0.115   [+0.104, +0.125]  +0.096  0.57 1.000(294)   0/464  0.351   0.000
+    wb_decoy_long_refutable_guard    5   405  0.800  0.769  0.899  +0.099   [+0.083, +0.115]  +0.130  0.55 0.951(144)   0/204  0.356   0.017
+    wb_decoy_long_refutable_guard   10   405  0.800  0.769  0.906  +0.106   [+0.092, +0.122]  +0.137  0.52 1.000(144)   0/204  0.356   0.000
+    wb_decoy_long_refutable_guard   20   405  0.800  0.769  0.907  +0.107   [+0.092, +0.122]  +0.138  0.52 1.000(144)   0/204  0.356   0.000
+    wb_decoy_trivial_guard           5   742  0.775  0.851  0.909  +0.134   [+0.121, +0.147]  +0.059  0.71 0.958(142)   0/507  0.191   0.008
+    wb_decoy_trivial_guard          10   742  0.775  0.851  0.909  +0.134   [+0.121, +0.147]  +0.059  0.70 1.000(142)   0/507  0.191   0.000
+    wb_decoy_trivial_guard          20   742  0.775  0.851  0.909  +0.134   [+0.122, +0.147]  +0.059  0.70 1.000(142)   0/507  0.191   0.000
+    wb_inv_relu                      5   742  0.775  0.859  0.907  +0.132   [+0.119, +0.144]  +0.048  0.73 1.000(  1)   0/503  0.001   0.000
+    wb_inv_relu                     10   742  0.775  0.859  0.908  +0.132   [+0.120, +0.144]  +0.049  0.71 1.000(  1)   0/503  0.001   0.000
+    wb_inv_relu                     20   742  0.775  0.859  0.908  +0.132   [+0.121, +0.145]  +0.049  0.70 1.000(  1)   0/503  0.001   0.000
+    wb_clean                         5   673  0.767  0.998  0.999  +0.232   [+0.218, +0.245]  +0.001  1.00    n/a(  0)   0/670  0.000   0.000
+    wb_clean                        10   673  0.767  0.998  0.999  +0.232   [+0.218, +0.245]  +0.001  1.00    n/a(  0)   0/670  0.000   0.000
+    wb_clean                        20   673  0.767  0.998  0.999  +0.232   [+0.218, +0.245]  +0.001  1.00    n/a(  0)   0/670  0.000   0.000
+    (trapRej = share of trapped WB answers rejected (n trapped); corrRej = exactly correct WB answers rejected / total)
+
+  Anti-transparent code, main condition, per model (k = 5 / 10 / 20):
+    model                        n     BB     WB   arb5  arb10  arb20  arb10-BB trapWB trapArb10
+    claude-fable-5-2            25  0.966  1.000  1.000  1.000  1.000    +0.034  0.000     0.000
+    claude-haiku-4-5-20251001   25  0.672  0.508  0.672  0.672  0.672    +0.000  0.440     0.000
+    claude-haiku-5-5            25  0.972  0.867  0.950  0.972  0.972    +0.000  0.280     0.000
+    claude-opus-4-6             25  0.928  0.642  0.928  0.928  0.928    +0.000  0.240     0.000
+    claude-opus-4-8             25  1.000  0.916  0.978  1.000  1.000    +0.000  0.160     0.000
+    claude-opus-5-5             25  1.000  1.000  1.000  1.000  1.000    +0.000  0.000     0.000
+    claude-sonnet-4-5-20250929  25  0.882  0.504  0.862  0.882  0.882    +0.000  1.000     0.000
+    claude-sonnet-4-6           25  0.689  0.943  0.977  0.977  0.977    +0.288  0.120     0.000
+    claude-sonnet-5-5           25  0.971  0.761  0.982  0.971  0.971    +0.000  0.440     0.000
+    gemini-3.1-flash-lite       20  0.511  0.682  0.680  0.680  0.680    +0.169  0.150     0.000
+    gemini-3.5-flash-lite       25  0.500  0.852  0.859  0.859  0.859    +0.359  0.160     0.000
+    gemini-3.8-flash            25  0.529  0.897  0.914  0.914  0.914    +0.385  0.200     0.000
+    gemini-4-carbon             25  0.650  1.000  1.000  1.000  1.000    +0.350  0.000     0.000
+    gemma-4-26b-a4b-it          10  0.513  0.604  0.613  0.613  0.613    +0.100  0.500     0.000
+    gemma-4-31b-it              15  0.532  0.624  0.665  0.665  0.665    +0.133  0.267     0.000
+
+  Budget caveat. The arbitrated system consumes one complete BB run plus one complete WB run plus k extra
+  oracle queries, and is compared here against single-run baselines (BB alone, WB alone) that each had one
+  budget. Mean per-run use in the main condition (anti-transparent code pairs): queries_used BB=56.89 WB=24.06, turns BB=4.54 WB=4.89, output_tokens BB=2148.74 WB=2101.85, cost_usd BB=0.05 WB=0.07
+  What the logs can say: given two independently logged runs, how often a k-point oracle check separates a
+  trapped WB answer from a correct one, and what the combined answer would score. What they cannot say: how one
+  agent given split budgets (or the same total budget) would behave, whether a single BB run at double budget
+  would match the arbitrated accuracy (no such runs at equal total budget per seed), or how agents would act if
+  told a verification step follows. The k check queries are free here (computed offline), not drawn from either budget.

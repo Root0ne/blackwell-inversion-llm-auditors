@@ -1,0 +1,291 @@
+====================================================================================================
+PART A -- refutable control on additional models (100 trials, $8.17)
+====================================================================================================
+claude-fable-5-2             refutable: n=25 acc=1.000 valid=1.00 trap=0/25 q=47.3 | hard-guard(locked): acc=1.000 trap=0/25 | BB(locked)=0.966
+                             dWB(refutable)=+0.034 [+0.000, +0.086] p=0.5034 | code-refut acc=+0.000 [+0.000, +0.000] p=1.0000 | trap=+0.000 [+0.000, +0.000]
+claude-haiku-4-5-20251001    refutable: n=25 acc=0.502 valid=0.96 trap=24/25 q=17.9 | hard-guard(locked): acc=0.508 trap=11/25 | BB(locked)=0.672
+                             dWB(refutable)=-0.170 [-0.273, -0.076] p=0.0032 | code-refut acc=+0.006 [-0.010, +0.023] p=0.5219 | trap=-0.520 [-0.720, -0.320]
+claude-opus-5-5              refutable: n=25 acc=1.000 valid=1.00 trap=0/25 q=36.4 | hard-guard(locked): acc=1.000 trap=0/25 | BB(locked)=1.000
+                             dWB(refutable)=+0.000 [+0.000, +0.000] p=1.0000 | code-refut acc=+0.000 [+0.000, +0.000] p=1.0000 | trap=+0.000 [+0.000, +0.000]
+claude-sonnet-4-6            refutable: n=25 acc=0.928 valid=0.96 trap=3/25 q=6.7 | hard-guard(locked): acc=0.943 trap=3/25 | BB(locked)=0.689
+                             dWB(refutable)=+0.239 [+0.113, +0.359] p=0.0016 | code-refut acc=+0.015 [-0.078, +0.113] p=0.8285 | trap=+0.000 [-0.200, +0.200]
+
+acc  code-refut, new cells only    : diff=+0.0052 over 100 pairs / 4 cells | strat 90% [-0.015, +0.026] 95% [-0.019, +0.030] | cluster 90% [-0.014, +0.029] 95% [-0.019, +0.035] | p=0.6819 | equiv±0.05 strat=True clus=True | equiv±0.10 strat=True clus=True
+trap code-refut, new cells only    : diff=-0.1300 over 100 pairs / 4 cells | strat 90% [-0.190, -0.070] 95% [-0.200, -0.060] | cluster 90% [-0.340, +0.030] 95% [-0.400, +0.040] | p=0.0050 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+acc  code-refut, extended (14 models): diff=+0.0015 over 505 pairs / 22 cells | strat 90% [-0.018, +0.021] 95% [-0.022, +0.024] | cluster 90% [-0.024, +0.027] 95% [-0.029, +0.032] | p=0.9051 | equiv±0.05 strat=True clus=True | equiv±0.10 strat=True clus=True
+trap code-refut, extended (14 models): diff=-0.0158 over 505 pairs / 22 cells | strat 90% [-0.055, +0.024] 95% [-0.063, +0.032] | cluster 90% [-0.084, +0.048] 95% [-0.098, +0.059] | p=0.5885 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=True clus=True
+acc  code-refut, extended, valid JSON only: diff=-0.0043 over 427 pairs / 22 cells | strat 90% [-0.025, +0.016] 95% [-0.029, +0.020] | cluster 90% [-0.032, +0.022] 95% [-0.037, +0.028] | p=0.7346 | equiv±0.05 strat=True clus=True | equiv±0.10 strat=True clus=True
+acc  code-refut, main condition (14 models): diff=+0.0038 over 320 pairs / 14 cells | strat 90% [-0.020, +0.027] 95% [-0.024, +0.032] | cluster 90% [-0.024, +0.030] 95% [-0.029, +0.036] | p=0.7877 | equiv±0.05 strat=True clus=True | equiv±0.10 strat=True clus=True
+trap code-refut, main condition (14 models): diff=-0.0375 over 320 pairs / 14 cells | strat 90% [-0.084, +0.009] 95% [-0.091, +0.019] | cluster 90% [-0.123, +0.043] 95% [-0.143, +0.056] | p=0.2480 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=True clus=False
+own-query evidence (new refutable trials): {"trapped": {"n": 27, "queried": 27, "queried_ge10": 25, "contradicted_by_own_queries": 27, "mean_queries": 22.074074074074073, "mean_contradicting_queries": 11.074074074074074, "median_contradicting_queries_among_queried": 9.0}, "exact": {"n": 71, "queried": 43, "queried_ge10": 43, "contradicted_by_own_queries": 0, "mean_queries": 29.464788732394368, "mean_contradicting_queries": 0.0, "median_contradicting_queries_among_queried": 0.0}}
+
+====================================================================================================
+PART B -- protocols (1200 trials, $19.02); cost by model: claude-haiku-5-5=$0.54, claude-sonnet-5-5=$9.50, gemini-3.5-flash-lite=$2.77, gemini-3.8-flash=$6.21
+====================================================================================================
+model                    protocol       arm                              n    acc valid   trap     q    0q turns trunc     dWB             95% CI       p
+claude-haiku-5-5         standard       BB                              25  0.934  0.92   0/25  59.0  0.08  4.04     2 
+claude-haiku-5-5         standard       wb_clean                        25  1.000  1.00   0/25  50.8  0.00  4.72     0  +0.066   [+0.008, +0.135]  0.1272
+claude-haiku-5-5         standard       wb_inv_code                     25  0.847  1.00   8/25  52.4  0.12  4.88     0  -0.087   [-0.192, +0.019]  0.1448
+claude-haiku-5-5         standard       wb_decoy_long_refutable_guard   25  0.805  1.00   9/25  48.4  0.08  4.96     0  -0.129   [-0.239, -0.023]  0.0296
+claude-haiku-5-5         verify_first   BB                              25  0.940  0.88   0/25  57.6  0.12  4.12     3 
+claude-haiku-5-5         verify_first   wb_clean                        25  1.000  1.00   0/25  40.0  0.00  4.72     0  +0.060   [+0.000, +0.120]  0.2492
+claude-haiku-5-5         verify_first   wb_inv_code                     25  0.884  0.96   3/25  58.6  0.00  4.92     0  -0.056   [-0.158, +0.042]  0.3163
+claude-haiku-5-5         verify_first   wb_decoy_long_refutable_guard   25  0.854  0.92   5/25  62.0  0.00  5.00     0  -0.086   [-0.194, +0.016]  0.1426
+claude-haiku-5-5         harness_check  BB                              25  0.834  0.88   0/25  47.2  0.12  3.88     3 
+claude-haiku-5-5         harness_check  wb_clean                        25  1.000  1.00   0/25  45.6  0.00  4.00     0  +0.166   [+0.075, +0.265]  0.0077
+claude-haiku-5-5         harness_check  wb_inv_code                     25  0.750  0.80   5/25  31.6  0.44  4.56     0  -0.084   [-0.179, +0.008]  0.0913
+claude-haiku-5-5         harness_check  wb_decoy_long_refutable_guard   25  0.738  0.88   7/25  38.4  0.28  4.56     1  -0.096   [-0.215, +0.028]  0.1449
+claude-sonnet-5-5        standard       BB                              25  1.000  1.00   0/25  80.0  0.00  4.92     0 
+claude-sonnet-5-5        standard       wb_clean                        25  1.000  1.00   0/25   6.4  0.84  2.48     0  +0.000   [+0.000, +0.000]  1.0000
+claude-sonnet-5-5        standard       wb_inv_code                     25  0.747  1.00  13/25  74.4  0.00  4.92     0  -0.253   [-0.349, -0.156]  0.0007
+claude-sonnet-5-5        standard       wb_decoy_long_refutable_guard   25  0.786  1.00  11/25  75.2  0.00  5.00     0  -0.214   [-0.313, -0.118]  0.0008
+claude-sonnet-5-5        verify_first   BB                              25  1.000  1.00   0/25  70.0  0.00  4.68     0 
+claude-sonnet-5-5        verify_first   wb_clean                        25  1.000  1.00   0/25  40.0  0.00  4.24     0  +0.000   [+0.000, +0.000]  1.0000
+claude-sonnet-5-5        verify_first   wb_inv_code                     25  0.989  1.00   0/25  42.8  0.00  4.96     0  -0.011   [-0.034, +0.000]  1.0000
+claude-sonnet-5-5        verify_first   wb_decoy_long_refutable_guard   25  1.000  1.00   0/25  42.0  0.00  5.00     0  +0.000   [+0.000, +0.000]  1.0000
+claude-sonnet-5-5        harness_check  BB                              25  0.543  0.60   0/25  70.0  0.00  4.96    10 
+claude-sonnet-5-5        harness_check  wb_clean                        25  1.000  1.00   0/25  14.0  0.68  2.64     0  +0.457   [+0.405, +0.497]  0.0001
+claude-sonnet-5-5        harness_check  wb_inv_code                     25  0.538  0.32   1/25  66.0  0.00  5.00    17  -0.005   [-0.066, +0.047]  0.8947
+claude-sonnet-5-5        harness_check  wb_decoy_long_refutable_guard   25  0.605  0.44   0/25  64.8  0.00  4.84    14  +0.062   [-0.024, +0.148]  0.1939
+gemini-3.5-flash-lite    standard       BB                              25  0.541  0.68   0/25  52.8  0.00  5.00     0 
+gemini-3.5-flash-lite    standard       wb_clean                        25  1.000  1.00   0/25   0.0  1.00  2.96     0  +0.459   [+0.395, +0.509]  0.0001
+gemini-3.5-flash-lite    standard       wb_inv_code                     25  0.794  0.80   5/25   2.0  0.96  5.00     0  +0.252   [+0.147, +0.361]  0.0004
+gemini-3.5-flash-lite    standard       wb_decoy_long_refutable_guard   25  0.826  0.80   4/25   0.4  0.96  4.88     0  +0.285   [+0.148, +0.408]  0.0004
+gemini-3.5-flash-lite    verify_first   BB                              25  0.508  0.64   0/25  57.4  0.00  5.00     0 
+gemini-3.5-flash-lite    verify_first   wb_clean                        25  0.920  0.84   0/25  15.0  0.00  5.00     0  +0.412   [+0.328, +0.484]  0.0001
+gemini-3.5-flash-lite    verify_first   wb_inv_code                     25  0.737  0.56   2/25  12.2  0.52  5.00     0  +0.229   [+0.129, +0.329]  0.0003
+gemini-3.5-flash-lite    verify_first   wb_decoy_long_refutable_guard   25  0.641  0.52   6/25  17.4  0.40  5.00     0  +0.133   [+0.043, +0.230]  0.0108
+gemini-3.5-flash-lite    harness_check  BB                              25  0.525  0.52   0/25  51.4  0.00  5.00     0 
+gemini-3.5-flash-lite    harness_check  wb_clean                        25  1.000  1.00   0/25   0.0  1.00  2.80     0  +0.475   [+0.448, +0.499]  0.0001
+gemini-3.5-flash-lite    harness_check  wb_inv_code                     25  0.693  0.60   0/25   0.0  1.00  4.60     0  +0.168   [+0.070, +0.270]  0.0040
+gemini-3.5-flash-lite    harness_check  wb_decoy_long_refutable_guard   25  0.760  0.72   0/25   0.0  1.00  4.48     0  +0.235   [+0.132, +0.338]  0.0004
+gemini-3.8-flash         standard       BB                              25  0.513  0.96   0/25   6.8  0.88  4.92     1 
+gemini-3.8-flash         standard       wb_clean                        25  1.000  1.00   0/25   0.6  0.76  2.56     0  +0.487   [+0.457, +0.519]  0.0001
+gemini-3.8-flash         standard       wb_inv_code                     25  0.860  0.96   6/25   0.6  0.88  5.00     0  +0.348   [+0.257, +0.432]  0.0001
+gemini-3.8-flash         standard       wb_decoy_long_refutable_guard   25  0.903  0.96   4/25   0.8  0.80  5.00     1  +0.390   [+0.296, +0.473]  0.0001
+gemini-3.8-flash         verify_first   BB                              25  0.624  1.00   0/25  14.0  0.72  5.00     0 
+gemini-3.8-flash         verify_first   wb_clean                        25  1.000  1.00   0/25  17.2  0.00  5.00     0  +0.376   [+0.294, +0.446]  0.0001
+gemini-3.8-flash         verify_first   wb_inv_code                     25  0.980  1.00   1/25   4.0  0.80  5.00     0  +0.356   [+0.271, +0.431]  0.0001
+gemini-3.8-flash         verify_first   wb_decoy_long_refutable_guard   25  0.938  1.00   3/25   2.4  0.88  5.00     0  +0.314   [+0.222, +0.399]  0.0001
+gemini-3.8-flash         harness_check  BB                              25  0.557  0.72   0/25   0.0  1.00  4.88     4 
+gemini-3.8-flash         harness_check  wb_clean                        25  1.000  1.00   0/25   0.4  0.80  2.20     0  +0.443   [+0.403, +0.480]  0.0001
+gemini-3.8-flash         harness_check  wb_inv_code                     25  0.866  0.92   0/25   0.0  1.00  4.32     0  +0.308   [+0.223, +0.388]  0.0001
+gemini-3.8-flash         harness_check  wb_decoy_long_refutable_guard   25  0.832  1.00   0/25   0.2  0.96  4.40     0  +0.275   [+0.177, +0.373]  0.0002
+
+Protocol minus standard (paired by model and seed):
+  verify_first   BB                             acc : diff=+0.0211 over 100 pairs / 4 cells | strat 90% [-0.006, +0.048] 95% [-0.011, +0.054] | cluster 90% [-0.026, +0.078] 95% [-0.033, +0.090] | p=0.2370 | equiv±0.05 strat=True clus=False | equiv±0.10 strat=True clus=True
+      per model: claude-haiku-5-5 +0.006 [-0.079, +0.086] p=1.000; claude-sonnet-5-5 +0.000 [+0.000, +0.000] p=1.000; gemini-3.5-flash-lite -0.033 [-0.096, +0.017] p=0.292; gemini-3.8-flash +0.112 [+0.037, +0.206] p=0.031
+  verify_first   wb_clean                       acc : diff=-0.0200 over 100 pairs / 4 cells | strat 90% [-0.035, -0.005] 95% [-0.040, -0.005] | cluster 90% [-0.055, +0.000] 95% [-0.065, +0.000] | p=0.1218 | equiv±0.05 strat=True clus=False | equiv±0.10 strat=True clus=True
+      per model: claude-haiku-5-5 +0.000 [+0.000, +0.000] p=1.000; claude-sonnet-5-5 +0.000 [+0.000, +0.000] p=1.000; gemini-3.5-flash-lite -0.080 [-0.160, -0.020] p=0.117; gemini-3.8-flash +0.000 [+0.000, +0.000] p=1.000
+  verify_first   wb_inv_code                    acc : diff=+0.0855 over 100 pairs / 4 cells | strat 90% [+0.038, +0.133] 95% [+0.029, +0.141] | cluster 90% [-0.017, +0.187] 95% [-0.038, +0.206] | p=0.0090 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 +0.037 [-0.089, +0.163] p=0.600; claude-sonnet-5-5 +0.242 [+0.148, +0.335] p=0.001; gemini-3.5-flash-lite -0.057 [-0.198, +0.087] p=0.519; gemini-3.8-flash +0.120 [+0.040, +0.208] p=0.031
+  verify_first   wb_inv_code                    trap: diff=-0.2600 over 100 pairs / 4 cells | strat 90% [-0.340, -0.180] 95% [-0.360, -0.160] | cluster 90% [-0.420, -0.120] 95% [-0.450, -0.100] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 -0.200 [-0.400, +0.000] p=0.182; claude-sonnet-5-5 -0.520 [-0.720, -0.320] p=0.001; gemini-3.5-flash-lite -0.120 [-0.320, +0.080] p=0.450; gemini-3.8-flash -0.200 [-0.360, -0.040] p=0.060
+  verify_first   wb_decoy_long_refutable_guard  acc : diff=+0.0285 over 100 pairs / 4 cells | strat 90% [-0.022, +0.079] 95% [-0.032, +0.089] | cluster 90% [-0.101, +0.151] 95% [-0.125, +0.172] | p=0.4022 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=True clus=False
+      per model: claude-haiku-5-5 +0.049 [-0.111, +0.200] p=0.550; claude-sonnet-5-5 +0.214 [+0.118, +0.313] p=0.001; gemini-3.5-flash-lite -0.185 [-0.303, -0.062] p=0.004; gemini-3.8-flash +0.036 [-0.076, +0.144] p=0.567
+  verify_first   wb_decoy_long_refutable_guard  trap: diff=-0.1400 over 100 pairs / 4 cells | strat 90% [-0.230, -0.050] 95% [-0.250, -0.030] | cluster 90% [-0.330, +0.040] 95% [-0.360, +0.070] | p=0.0323 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 -0.160 [-0.400, +0.120] p=0.389; claude-sonnet-5-5 -0.440 [-0.640, -0.240] p=0.001; gemini-3.5-flash-lite +0.080 [-0.120, +0.280] p=0.723; gemini-3.8-flash -0.040 [-0.240, +0.160] p=1.000
+  verify_first   decoy_code                     acc : diff=+0.0570 over 200 pairs / 4 cells | strat 90% [+0.021, +0.093] 95% [+0.015, +0.100] | cluster 90% [-0.055, +0.165] 95% [-0.075, +0.185] | p=0.0152 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=True clus=False
+      per model: claude-haiku-5-5 +0.043 [-0.058, +0.144] p=0.401; claude-sonnet-5-5 +0.228 [+0.161, +0.296] p=0.000; gemini-3.5-flash-lite -0.121 [-0.212, -0.023] p=0.022; gemini-3.8-flash +0.078 [+0.008, +0.149] p=0.044
+  verify_first   decoy_code                     trap: diff=-0.2000 over 200 pairs / 4 cells | strat 90% [-0.260, -0.135] 95% [-0.275, -0.125] | cluster 90% [-0.370, -0.055] 95% [-0.400, -0.035] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 -0.180 [-0.360, +0.000] p=0.074; claude-sonnet-5-5 -0.480 [-0.620, -0.340] p=0.000; gemini-3.5-flash-lite -0.020 [-0.160, +0.120] p=1.000; gemini-3.8-flash -0.120 [-0.260, +0.020] p=0.149
+  harness_check  BB                             acc : diff=-0.1322 over 100 pairs / 4 cells | strat 90% [-0.163, -0.102] 95% [-0.169, -0.096] | cluster 90% [-0.307, +0.013] 95% [-0.346, +0.026] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 -0.100 [-0.220, +0.017] p=0.136; claude-sonnet-5-5 -0.457 [-0.497, -0.405] p=0.000; gemini-3.5-flash-lite -0.016 [-0.079, +0.036] p=0.611; gemini-3.8-flash +0.044 [-0.001, +0.091] p=0.079
+  harness_check  wb_clean                       acc : diff=+0.0000 over 100 pairs / 4 cells | strat 90% [+0.000, +0.000] 95% [+0.000, +0.000] | cluster 90% [+0.000, +0.000] 95% [+0.000, +0.000] | p=1.0000 | equiv±0.05 strat=True clus=True | equiv±0.10 strat=True clus=True
+      per model: claude-haiku-5-5 +0.000 [+0.000, +0.000] p=1.000; claude-sonnet-5-5 +0.000 [+0.000, +0.000] p=1.000; gemini-3.5-flash-lite +0.000 [+0.000, +0.000] p=1.000; gemini-3.8-flash +0.000 [+0.000, +0.000] p=1.000
+  harness_check  wb_inv_code                    acc : diff=-0.1001 over 100 pairs / 4 cells | strat 90% [-0.148, -0.052] 95% [-0.158, -0.042] | cluster 90% [-0.176, -0.020] 95% [-0.190, -0.005] | p=0.0019 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 -0.097 [-0.218, +0.025] p=0.149; claude-sonnet-5-5 -0.208 [-0.312, -0.106] p=0.001; gemini-3.5-flash-lite -0.100 [-0.214, +0.014] p=0.132; gemini-3.8-flash +0.005 [-0.112, +0.128] p=0.953
+  harness_check  wb_inv_code                    trap: diff=-0.2600 over 100 pairs / 4 cells | strat 90% [-0.340, -0.180] 95% [-0.360, -0.160] | cluster 90% [-0.400, -0.130] 95% [-0.430, -0.110] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 -0.120 [-0.360, +0.120] p=0.516; claude-sonnet-5-5 -0.480 [-0.680, -0.240] p=0.003; gemini-3.5-flash-lite -0.200 [-0.360, -0.040] p=0.061; gemini-3.8-flash -0.240 [-0.400, -0.080] p=0.028
+  harness_check  wb_decoy_long_refutable_guard  acc : diff=-0.0961 over 100 pairs / 4 cells | strat 90% [-0.146, -0.046] 95% [-0.155, -0.037] | cluster 90% [-0.161, -0.033] 95% [-0.173, -0.021] | p=0.0026 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 -0.066 [-0.185, +0.056] p=0.322; claude-sonnet-5-5 -0.181 [-0.290, -0.068] p=0.005; gemini-3.5-flash-lite -0.066 [-0.203, +0.074] p=0.328; gemini-3.8-flash -0.070 [-0.176, +0.039] p=0.227
+  harness_check  wb_decoy_long_refutable_guard  trap: diff=-0.2100 over 100 pairs / 4 cells | strat 90% [-0.280, -0.140] 95% [-0.290, -0.130] | cluster 90% [-0.350, -0.090] 95% [-0.380, -0.080] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 -0.080 [-0.240, +0.080] p=0.622; claude-sonnet-5-5 -0.440 [-0.640, -0.240] p=0.001; gemini-3.5-flash-lite -0.160 [-0.320, -0.040] p=0.123; gemini-3.8-flash -0.160 [-0.320, -0.040] p=0.129
+  harness_check  decoy_code                     acc : diff=-0.0981 over 200 pairs / 4 cells | strat 90% [-0.133, -0.064] 95% [-0.139, -0.056] | cluster 90% [-0.160, -0.040] 95% [-0.173, -0.030] | p=0.0003 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 -0.082 [-0.168, +0.003] p=0.069; claude-sonnet-5-5 -0.195 [-0.269, -0.118] p=0.000; gemini-3.5-flash-lite -0.083 [-0.170, +0.009] p=0.077; gemini-3.8-flash -0.033 [-0.113, +0.050] p=0.438
+  harness_check  decoy_code                     trap: diff=-0.2350 over 200 pairs / 4 cells | strat 90% [-0.285, -0.180] 95% [-0.300, -0.170] | cluster 90% [-0.370, -0.120] 95% [-0.395, -0.105] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 -0.100 [-0.240, +0.040] p=0.259; claude-sonnet-5-5 -0.460 [-0.600, -0.320] p=0.000; gemini-3.5-flash-lite -0.180 [-0.300, -0.080] p=0.005; gemini-3.8-flash -0.200 [-0.320, -0.100] p=0.002
+
+Pooled Delta_WB within protocol (WB minus BB of the same protocol):
+  standard       wb_clean                      : diff=+0.2530 over 100 pairs / 4 cells | strat 90% [+0.234, +0.272] 95% [+0.230, +0.275] | cluster 90% [+0.047, +0.463] 95% [+0.026, +0.478] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  standard       wb_inv_code                   : diff=+0.0649 over 100 pairs / 4 cells | strat 90% [+0.023, +0.106] 95% [+0.015, +0.114] | cluster 90% [-0.145, +0.277] 95% [-0.185, +0.313] | p=0.0726 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  standard       wb_decoy_long_refutable_guard : diff=+0.0829 over 100 pairs / 4 cells | strat 90% [+0.037, +0.128] 95% [+0.028, +0.136] | cluster 90% [-0.149, +0.308] 95% [-0.182, +0.351] | p=0.0322 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  standard       decoy_code                    : diff=+0.0739 over 200 pairs / 4 cells | strat 90% [+0.042, +0.105] 95% [+0.037, +0.111] | cluster 90% [-0.147, +0.290] 95% [-0.182, +0.328] | p=0.0054 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  verify_first   wb_clean                      : diff=+0.2119 over 100 pairs / 4 cells | strat 90% [+0.185, +0.238] 95% [+0.180, +0.243] | cluster 90% [+0.045, +0.377] 95% [+0.025, +0.400] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  verify_first   wb_inv_code                   : diff=+0.1293 over 100 pairs / 4 cells | strat 90% [+0.095, +0.164] 95% [+0.088, +0.171] | cluster 90% [-0.021, +0.277] 95% [-0.040, +0.305] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  verify_first   wb_decoy_long_refutable_guard : diff=+0.0903 over 100 pairs / 4 cells | strat 90% [+0.056, +0.125] 95% [+0.049, +0.132] | cluster 90% [-0.037, +0.225] 95% [-0.059, +0.250] | p=0.0006 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  verify_first   decoy_code                    : diff=+0.1098 over 200 pairs / 4 cells | strat 90% [+0.085, +0.134] 95% [+0.080, +0.139] | cluster 90% [-0.023, +0.247] 95% [-0.042, +0.270] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  harness_check  wb_clean                      : diff=+0.3852 over 100 pairs / 4 cells | strat 90% [+0.361, +0.410] 95% [+0.356, +0.414] | cluster 90% [+0.265, +0.470] 95% [+0.235, +0.475] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  harness_check  wb_inv_code                   : diff=+0.0970 over 100 pairs / 4 cells | strat 90% [+0.061, +0.132] 95% [+0.053, +0.140] | cluster 90% [-0.034, +0.229] 95% [-0.055, +0.253] | p=0.0006 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  harness_check  wb_decoy_long_refutable_guard : diff=+0.1190 over 100 pairs / 4 cells | strat 90% [+0.075, +0.163] 95% [+0.066, +0.171] | cluster 90% [-0.016, +0.245] 95% [-0.045, +0.264] | p=0.0003 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+  harness_check  decoy_code                    : diff=+0.1080 over 200 pairs / 4 cells | strat 90% [+0.079, +0.136] 95% [+0.074, +0.141] | cluster 90% [-0.019, +0.232] 95% [-0.044, +0.254] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+
+Harness check:
+  claude-haiku-5-5         BB                             n= 25 first_acc=0.828 final_acc=0.834 pass/mismatch/invalid=17/3/5 | first trapped=0 (flagged 0, still trapped 0, exact after 0) | first exact=17 (flagged 0) | flagged=8 exact after=0 acc +0.463 -> +0.481
+  claude-haiku-5-5         wb_clean                       n= 25 first_acc=1.000 final_acc=1.000 pass/mismatch/invalid=25/0/0 | first trapped=0 (flagged 0, still trapped 0, exact after 0) | first exact=25 (flagged 0) | flagged=0 exact after=0 acc   n/a  ->   n/a 
+  claude-haiku-5-5         wb_inv_code                    n= 25 first_acc=0.720 final_acc=0.750 pass/mismatch/invalid=11/14/0 | first trapped=12 (flagged 12, still trapped 5, exact after 0) | first exact=11 (flagged 0) | flagged=14 exact after=1 acc +0.501 -> +0.554
+  claude-haiku-5-5         wb_decoy_long_refutable_guard  n= 25 first_acc=0.723 final_acc=0.738 pass/mismatch/invalid=11/12/2 | first trapped=11 (flagged 11, still trapped 6, exact after 0) | first exact=11 (flagged 0) | flagged=14 exact after=0 acc +0.505 -> +0.533
+  claude-sonnet-5-5        BB                             n= 25 first_acc=0.538 final_acc=0.543 pass/mismatch/invalid=1/24/0 | first trapped=0 (flagged 0, still trapped 0, exact after 0) | first exact=1 (flagged 0) | flagged=24 exact after=0 acc +0.519 -> +0.524
+  claude-sonnet-5-5        wb_clean                       n= 25 first_acc=1.000 final_acc=1.000 pass/mismatch/invalid=25/0/0 | first trapped=0 (flagged 0, still trapped 0, exact after 0) | first exact=25 (flagged 0) | flagged=0 exact after=0 acc   n/a  ->   n/a 
+  claude-sonnet-5-5        wb_inv_code                    n= 25 first_acc=0.504 final_acc=0.538 pass/mismatch/invalid=0/25/0 | first trapped=25 (flagged 25, still trapped 1, exact after 0) | first exact=0 (flagged 0) | flagged=25 exact after=0 acc +0.504 -> +0.538
+  claude-sonnet-5-5        wb_decoy_long_refutable_guard  n= 25 first_acc=0.587 final_acc=0.605 pass/mismatch/invalid=4/21/0 | first trapped=21 (flagged 21, still trapped 0, exact after 0) | first exact=4 (flagged 0) | flagged=21 exact after=0 acc +0.509 -> +0.530
+  gemini-3.5-flash-lite    BB                             n= 25 first_acc=0.504 final_acc=0.525 pass/mismatch/invalid=0/16/9 | first trapped=0 (flagged 0, still trapped 0, exact after 0) | first exact=0 (flagged 0) | flagged=25 exact after=0 acc +0.504 -> +0.525
+  gemini-3.5-flash-lite    wb_clean                       n= 25 first_acc=1.000 final_acc=1.000 pass/mismatch/invalid=25/0/0 | first trapped=0 (flagged 0, still trapped 0, exact after 0) | first exact=25 (flagged 0) | flagged=0 exact after=0 acc   n/a  ->   n/a 
+  gemini-3.5-flash-lite    wb_inv_code                    n= 25 first_acc=0.708 final_acc=0.693 pass/mismatch/invalid=10/9/6 | first trapped=9 (flagged 9, still trapped 0, exact after 0) | first exact=10 (flagged 0) | flagged=15 exact after=0 acc +0.513 -> +0.489
+  gemini-3.5-flash-lite    wb_decoy_long_refutable_guard  n= 25 first_acc=0.736 final_acc=0.760 pass/mismatch/invalid=13/8/4 | first trapped=7 (flagged 7, still trapped 0, exact after 0) | first exact=13 (flagged 0) | flagged=12 exact after=0 acc +0.450 -> +0.499
+  gemini-3.8-flash         BB                             n= 25 first_acc=0.517 final_acc=0.557 pass/mismatch/invalid=0/21/4 | first trapped=0 (flagged 0, still trapped 0, exact after 0) | first exact=0 (flagged 0) | flagged=25 exact after=0 acc +0.517 -> +0.557
+  gemini-3.8-flash         wb_clean                       n= 25 first_acc=1.000 final_acc=1.000 pass/mismatch/invalid=25/0/0 | first trapped=0 (flagged 0, still trapped 0, exact after 0) | first exact=25 (flagged 0) | flagged=0 exact after=0 acc   n/a  ->   n/a 
+  gemini-3.8-flash         wb_inv_code                    n= 25 first_acc=0.846 final_acc=0.866 pass/mismatch/invalid=17/8/0 | first trapped=8 (flagged 8, still trapped 0, exact after 0) | first exact=17 (flagged 0) | flagged=8 exact after=0 acc +0.517 -> +0.580
+  gemini-3.8-flash         wb_decoy_long_refutable_guard  n= 25 first_acc=0.795 final_acc=0.832 pass/mismatch/invalid=15/10/0 | first trapped=10 (flagged 10, still trapped 0, exact after 0) | first exact=15 (flagged 0) | flagged=10 exact after=0 acc +0.487 -> +0.581
+  ALL                      BB                             n=100 first_acc=0.597 final_acc=0.615 pass/mismatch/invalid=18/64/18 | first trapped=0 (flagged 0, still trapped 0, exact after 0) | first exact=18 (flagged 0) | flagged=82 exact after=0 acc +0.508 -> +0.530
+  ALL                      wb_clean                       n=100 first_acc=1.000 final_acc=1.000 pass/mismatch/invalid=100/0/0 | first trapped=0 (flagged 0, still trapped 0, exact after 0) | first exact=100 (flagged 0) | flagged=0 exact after=0 acc   n/a  ->   n/a 
+  ALL                      wb_inv_code                    n=100 first_acc=0.694 final_acc=0.712 pass/mismatch/invalid=38/56/6 | first trapped=54 (flagged 54, still trapped 6, exact after 0) | first exact=38 (flagged 0) | flagged=62 exact after=1 acc +0.507 -> +0.535
+  ALL                      wb_decoy_long_refutable_guard  n=100 first_acc=0.710 final_acc=0.734 pass/mismatch/invalid=43/51/6 | first trapped=49 (flagged 49, still trapped 6, exact after 0) | first exact=43 (flagged 0) | flagged=57 exact after=0 acc +0.492 -> +0.533
+
+Behaviour on the two decoy-code variants:
+  claude-haiku-5-5         standard       n= 50 mean_q= 50.4 zero_q=0.10 >=10q=0.90 trap=0.34
+  claude-haiku-5-5         verify_first   n= 50 mean_q= 60.3 zero_q=0.00 >=10q=1.00 trap=0.16
+  claude-haiku-5-5         harness_check  n= 50 mean_q= 35.0 zero_q=0.36 >=10q=0.64 trap=0.24
+  claude-sonnet-5-5        standard       n= 50 mean_q= 74.8 zero_q=0.00 >=10q=1.00 trap=0.48
+  claude-sonnet-5-5        verify_first   n= 50 mean_q= 42.4 zero_q=0.00 >=10q=1.00 trap=0.00
+  claude-sonnet-5-5        harness_check  n= 50 mean_q= 65.4 zero_q=0.00 >=10q=1.00 trap=0.02
+  gemini-3.5-flash-lite    standard       n= 50 mean_q=  1.2 zero_q=0.96 >=10q=0.04 trap=0.18
+  gemini-3.5-flash-lite    verify_first   n= 50 mean_q= 14.8 zero_q=0.46 >=10q=0.54 trap=0.16
+  gemini-3.5-flash-lite    harness_check  n= 50 mean_q=  0.0 zero_q=1.00 >=10q=0.00 trap=0.00
+  gemini-3.8-flash         standard       n= 50 mean_q=  0.7 zero_q=0.84 >=10q=0.00 trap=0.20
+  gemini-3.8-flash         verify_first   n= 50 mean_q=  3.2 zero_q=0.84 >=10q=0.16 trap=0.08
+  gemini-3.8-flash         harness_check  n= 50 mean_q=  0.1 zero_q=0.98 >=10q=0.00 trap=0.00
+
+Own-query evidence on the two decoy-code variants (trapped answers vs exact answers):
+  standard       trapped: {"n": 60, "queried": 41, "queried_ge10": 41, "contradicted_by_own_queries": 41, "mean_queries": 45.833333333333336, "mean_contradicting_queries": 23.55, "median_contradicting_queries_among_queried": 34.0}
+                 exact  : {"n": 127, "queried": 61, "queried_ge10": 54, "contradicted_by_own_queries": 0, "mean_queries": 27.874015748031496, "mean_contradicting_queries": 0.0, "median_contradicting_queries_among_queried": 0.0}
+                   claude-haiku-5-5: n=17 queried=17 >=10q=17 contradicted=17
+                   claude-sonnet-5-5: n=24 queried=24 >=10q=24 contradicted=24
+                   gemini-3.5-flash-lite: n=9 queried=0 >=10q=0 contradicted=0
+                   gemini-3.8-flash: n=10 queried=0 >=10q=0 contradicted=0
+  verify_first   trapped: {"n": 20, "queried": 15, "queried_ge10": 15, "contradicted_by_own_queries": 15, "mean_queries": 35.75, "mean_contradicting_queries": 17.8, "median_contradicting_queries_among_queried": 20.0}
+                 exact  : {"n": 150, "queried": 93, "queried_ge10": 93, "contradicted_by_own_queries": 0, "mean_queries": 29.5, "mean_contradicting_queries": 0.0, "median_contradicting_queries_among_queried": 0.0}
+                   claude-haiku-5-5: n=8 queried=8 >=10q=8 contradicted=8
+                   claude-sonnet-5-5: n=0 queried=0 >=10q=0 contradicted=0
+                   gemini-3.5-flash-lite: n=8 queried=7 >=10q=7 contradicted=7
+                   gemini-3.8-flash: n=4 queried=0 >=10q=0 contradicted=0
+  harness_check  trapped: {"n": 13, "queried": 10, "queried_ge10": 10, "contradicted_by_own_queries": 10, "mean_queries": 44.61538461538461, "mean_contradicting_queries": 21.923076923076923, "median_contradicting_queries_among_queried": 29.0}
+                 exact  : {"n": 82, "queried": 16, "queried_ge10": 16, "contradicted_by_own_queries": 0, "mean_queries": 11.097560975609756, "mean_contradicting_queries": 0.0, "median_contradicting_queries_among_queried": 0.0}
+                   claude-haiku-5-5: n=12 queried=9 >=10q=9 contradicted=9
+                   claude-sonnet-5-5: n=1 queried=1 >=10q=1 contradicted=1
+                   gemini-3.5-flash-lite: n=0 queried=0 >=10q=0 contradicted=0
+                   gemini-3.8-flash: n=0 queried=0 >=10q=0 contradicted=0
+
+Replication: fresh standard protocol minus locked records (paired by seed):
+  BB                             acc : diff=+0.0040 over 100 pairs / 4 cells | strat 90% [-0.016, +0.025] 95% [-0.020, +0.030] | cluster 90% [-0.029, +0.038] 95% [-0.034, +0.045] | p=0.7762 | equiv±0.05 strat=True clus=True | equiv±0.10 strat=True clus=True
+      per model: claude-haiku-5-5 0.934 vs 0.972; claude-sonnet-5-5 1.000 vs 0.971; gemini-3.5-flash-lite 0.541 vs 0.500; gemini-3.8-flash 0.513 vs 0.529
+  wb_clean                       acc : diff=+0.0000 over 100 pairs / 4 cells | strat 90% [+0.000, +0.000] 95% [+0.000, +0.000] | cluster 90% [+0.000, +0.000] 95% [+0.000, +0.000] | p=1.0000 | equiv±0.05 strat=True clus=True | equiv±0.10 strat=True clus=True
+      per model: claude-haiku-5-5 1.000 vs 1.000; claude-sonnet-5-5 1.000 vs 1.000; gemini-3.5-flash-lite 1.000 vs 1.000; gemini-3.8-flash 1.000 vs 1.000
+  wb_inv_code                    acc : diff=-0.0322 over 100 pairs / 4 cells | strat 90% [-0.083, +0.018] 95% [-0.092, +0.028] | cluster 90% [-0.084, +0.020] 95% [-0.094, +0.030] | p=0.3121 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=True clus=True
+      per model: claude-haiku-5-5 0.847 vs 0.867; claude-sonnet-5-5 0.747 vs 0.761; gemini-3.5-flash-lite 0.794 vs 0.852; gemini-3.8-flash 0.860 vs 0.897
+  wb_inv_code                    trap: diff=+0.0500 over 100 pairs / 4 cells | strat 90% [-0.050, +0.140] 95% [-0.060, +0.160] | cluster 90% [-0.040, +0.150] 95% [-0.060, +0.160] | p=0.4875 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 0.320 vs 0.280; claude-sonnet-5-5 0.520 vs 0.440; gemini-3.5-flash-lite 0.200 vs 0.160; gemini-3.8-flash 0.240 vs 0.200
+  wb_decoy_long_refutable_guard  acc : diff=+0.0071 over 100 pairs / 4 cells | strat 90% [-0.041, +0.053] 95% [-0.050, +0.063] | cluster 90% [-0.042, +0.054] 95% [-0.051, +0.063] | p=0.8066 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=True clus=True
+      per model: claude-haiku-5-5 0.805 vs 0.809; claude-sonnet-5-5 0.786 vs 0.788; gemini-3.5-flash-lite 0.826 vs 0.819; gemini-3.8-flash 0.903 vs 0.876
+  wb_decoy_long_refutable_guard  trap: diff=+0.0000 over 100 pairs / 4 cells | strat 90% [-0.090, +0.090] 95% [-0.100, +0.100] | cluster 90% [-0.090, +0.090] 95% [-0.110, +0.110] | p=1.0000 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=True clus=True
+      per model: claude-haiku-5-5 0.360 vs 0.360; claude-sonnet-5-5 0.440 vs 0.400; gemini-3.5-flash-lite 0.160 vs 0.200; gemini-3.8-flash 0.160 vs 0.160
+====================================================================================================
+PART C -- decoy answers that the agent itself presents as a guess (keyword pattern on the final message)
+====================================================================================================
+failed Python calls, main condition, share of trials by arm: {"BB": {"n": 345, "share_with_python_error": 0.6347826086956522}, "wb_clean": {"n": 345, "share_with_python_error": 0.3391304347826087}, "wb_decoy_long_refutable_guard": {"n": 220, "share_with_python_error": 0.5727272727272728}, "wb_decoy_trivial_guard": {"n": 345, "share_with_python_error": 0.5507246376811594}, "wb_inv_code": {"n": 345, "share_with_python_error": 0.5623188405797102}, "wb_inv_relu": {"n": 345, "share_with_python_error": 0.6492753623188405}}
+python_error_vs_trap_main_condition: {"n_strata": 15, "n_a": 320, "n_b": 245, "mean_a": 0.3625, "mean_b": 0.08163265306122448, "naive_diff": 0.2808673469387755, "strat_diff": 0.1949815909161226, "ci95": [0.13105720738838525, 0.256027814733455], "perm_p_two_sided": 9.999000099990002e-05, "n_trials_with_error": 320, "n_trials_without_error": 245}
+python_error_vs_trap_all_exp2: {"n_strata": 35, "n_a": 730, "n_b": 481, "mean_a": 0.4273972602739726, "mean_b": 0.22245322245322247, "naive_diff": 0.20494403782075016, "strat_diff": 0.19841660879223819, "ci95": [0.15616125764796007, 0.24036589586855292], "perm_p_two_sided": 9.999000099990002e-05, "n_trials_with_error": 730, "n_trials_without_error": 531}
+locked_main_condition: total {"trapped": 136, "trapped_hedged": 32, "trapped_bare_json": 34, "exact": 339, "exact_hedged": 6}
+  claude-fable-5-2             trapped=  0 hedged=  0 bare_json=  0 | exact= 25 hedged=  1
+  claude-haiku-4-5-20251001    trapped= 11 hedged=  0 bare_json=  0 | exact=  0 hedged=  0
+  claude-haiku-5-5             trapped= 16 hedged= 13 bare_json=  0 | exact= 33 hedged=  2
+  claude-opus-4-6              trapped= 12 hedged=  0 bare_json=  3 | exact= 15 hedged=  0
+  claude-opus-4-8              trapped= 10 hedged=  0 bare_json=  9 | exact= 40 hedged=  0
+  claude-opus-5-5              trapped=  0 hedged=  0 bare_json=  0 | exact= 25 hedged=  3
+  claude-sonnet-4-5-20250929   trapped= 25 hedged=  0 bare_json=  0 | exact=  0 hedged=  0
+  claude-sonnet-4-6            trapped=  3 hedged=  0 bare_json=  1 | exact= 22 hedged=  0
+  claude-sonnet-5-5            trapped= 21 hedged= 19 bare_json=  0 | exact= 27 hedged=  0
+  gemini-3.1-flash-lite        trapped=  6 hedged=  0 bare_json=  3 | exact= 17 hedged=  0
+  gemini-3.5-flash-lite        trapped=  9 hedged=  0 bare_json=  9 | exact= 34 hedged=  0
+  gemini-3.8-flash             trapped=  9 hedged=  0 bare_json=  9 | exact= 39 hedged=  0
+  gemini-4-carbon              trapped=  0 hedged=  0 bare_json=  0 | exact= 50 hedged=  0
+  gemma-4-26b-a4b-it           trapped=  6 hedged=  0 bare_json=  0 | exact=  3 hedged=  0
+  gemma-4-31b-it               trapped=  8 hedged=  0 bare_json=  0 | exact=  9 hedged=  0
+locked_all_exp2: total {"trapped": 444, "trapped_hedged": 269, "trapped_bare_json": 79, "exact": 679, "exact_hedged": 18}
+  claude-fable-5-2             trapped=  0 hedged=  0 bare_json=  0 | exact= 25 hedged=  1
+  claude-haiku-4-5-20251001    trapped= 11 hedged=  0 bare_json=  0 | exact=  0 hedged=  0
+  claude-haiku-5-5             trapped=170 hedged=155 bare_json=  0 | exact=180 hedged= 12
+  claude-opus-4-6              trapped= 20 hedged=  0 bare_json=  3 | exact= 29 hedged=  0
+  claude-opus-4-8              trapped= 16 hedged=  0 bare_json= 12 | exact= 78 hedged=  0
+  claude-opus-5-5              trapped=  0 hedged=  0 bare_json=  0 | exact= 50 hedged=  3
+  claude-sonnet-4-5-20250929   trapped= 25 hedged=  0 bare_json=  0 | exact=  0 hedged=  0
+  claude-sonnet-4-6            trapped=  3 hedged=  0 bare_json=  1 | exact= 22 hedged=  0
+  claude-sonnet-5-5            trapped=119 hedged=114 bare_json=  0 | exact=115 hedged=  2
+  gemini-3.1-flash-lite        trapped=  6 hedged=  0 bare_json=  3 | exact= 17 hedged=  0
+  gemini-3.5-flash-lite        trapped= 51 hedged=  0 bare_json= 51 | exact= 62 hedged=  0
+  gemini-3.8-flash             trapped=  9 hedged=  0 bare_json=  9 | exact= 39 hedged=  0
+  gemini-4-carbon              trapped=  0 hedged=  0 bare_json=  0 | exact= 50 hedged=  0
+  gemma-4-26b-a4b-it           trapped=  6 hedged=  0 bare_json=  0 | exact=  3 hedged=  0
+  gemma-4-31b-it               trapped=  8 hedged=  0 bare_json=  0 | exact=  9 hedged=  0
+followup_standard: total {"trapped": 87, "trapped_hedged": 41, "trapped_bare_json": 19, "exact": 198, "exact_hedged": 6}
+  claude-fable-5-2             trapped=  0 hedged=  0 bare_json=  0 | exact= 25 hedged=  0
+  claude-haiku-4-5-20251001    trapped= 24 hedged=  0 bare_json=  0 | exact=  0 hedged=  0
+  claude-haiku-5-5             trapped= 17 hedged= 17 bare_json=  0 | exact= 32 hedged=  2
+  claude-opus-5-5              trapped=  0 hedged=  0 bare_json=  0 | exact= 25 hedged=  4
+  claude-sonnet-4-6            trapped=  3 hedged=  0 bare_json=  0 | exact= 21 hedged=  0
+  claude-sonnet-5-5            trapped= 24 hedged= 24 bare_json=  0 | exact= 26 hedged=  0
+  gemini-3.5-flash-lite        trapped=  9 hedged=  0 bare_json=  9 | exact= 31 hedged=  0
+  gemini-3.8-flash             trapped= 10 hedged=  0 bare_json= 10 | exact= 38 hedged=  0
+followup_verify_first: total {"trapped": 20, "trapped_hedged": 8, "trapped_bare_json": 12, "exact": 150, "exact_hedged": 12}
+  claude-haiku-5-5             trapped=  8 hedged=  8 bare_json=  0 | exact= 36 hedged=  7
+  claude-sonnet-5-5            trapped=  0 hedged=  0 bare_json=  0 | exact= 49 hedged=  5
+  gemini-3.5-flash-lite        trapped=  8 hedged=  0 bare_json=  8 | exact= 19 hedged=  0
+  gemini-3.8-flash             trapped=  4 hedged=  0 bare_json=  4 | exact= 46 hedged=  0
+followup_harness_check: total {"trapped": 13, "trapped_hedged": 13, "trapped_bare_json": 0, "exact": 82, "exact_hedged": 4}
+  claude-haiku-5-5             trapped= 12 hedged= 12 bare_json=  0 | exact= 23 hedged=  4
+  claude-sonnet-5-5            trapped=  1 hedged=  1 bare_json=  0 | exact=  4 hedged=  0
+  gemini-3.5-flash-lite        trapped=  0 hedged=  0 bare_json=  0 | exact= 23 hedged=  0
+  gemini-3.8-flash             trapped=  0 hedged=  0 bare_json=  0 | exact= 32 hedged=  0
+
+====================================================================================================
+PART D -- answer check with tool-enabled revision turns (163 trials, 150 analysed, $2.77); cost by model: claude-haiku-5-5=$0.13, claude-sonnet-5-5=$1.45, gemini-3.5-flash-lite=$0.76, gemini-3.8-flash=$0.43
+====================================================================================================
+model                    arm            n  first  final trap1 trapF flag fixed tools  newq turns valid
+claude-haiku-5-5         BB            25  0.886  0.948     0     0    6     3     6   3.5  4.96  1.00
+claude-haiku-5-5         wb_inv_code   25  0.839  0.944     6     0    8     5     8   0.0  5.76  1.00
+claude-sonnet-5-5        BB            25  0.980  1.000     0     0    1     1     1   0.0  4.96  1.00
+claude-sonnet-5-5        wb_inv_code   25  0.727  1.000    12     0   14    14    14   0.0  6.12  1.00
+gemini-3.5-flash-lite    BB            25  0.518  0.776     0     0   24    12    24   0.0  7.76  0.92
+gemini-3.5-flash-lite    wb_inv_code   25  0.794  0.822     9     1   10     0    10   0.0  6.12  0.92
+ALL                      BB            75  0.795  0.908     0     0   31    16    31   0.7  5.89  0.97
+ALL                      wb_inv_code   75  0.787  0.922    27     1   32    19    32   0.0  6.00  0.97
+  incomplete, not analysed: gemini-3.8-flash       BB           n= 6 of 25 acc=0.688 trap=0
+  incomplete, not analysed: gemini-3.8-flash       wb_inv_code  n= 7 of 25 acc=1.000 trap=0
+
+Check with tools minus reference protocol (paired by seed; pooled over models):
+  vs standard       BB           acc  : diff=+0.0832 over 75 pairs / 3 cells | strat 90% [+0.047, +0.119] 95% [+0.041, +0.126] | cluster 90% [-0.005, +0.197] 95% [-0.011, +0.223] | p=0.0012 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 0.948 vs 0.934; claude-sonnet-5-5 1.000 vs 1.000; gemini-3.5-flash-lite 0.776 vs 0.541
+  vs standard       BB           turns: diff=+1.2400 over 75 pairs / 3 cells | strat 90% [+1.027, +1.453] 95% [+0.987, +1.507] | cluster 90% [+0.173, +2.307] 95% [+0.067, +2.733] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 4.960 vs 4.040; claude-sonnet-5-5 4.960 vs 4.920; gemini-3.5-flash-lite 7.760 vs 5.000
+  vs standard       wb_inv_code  acc  : diff=+0.1264 over 75 pairs / 3 cells | strat 90% [+0.073, +0.181] 95% [+0.062, +0.191] | cluster 90% [+0.020, +0.233] 95% [+0.003, +0.251] | p=0.0003 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 0.944 vs 0.847; claude-sonnet-5-5 1.000 vs 0.747; gemini-3.5-flash-lite 0.822 vs 0.794
+  vs standard       wb_inv_code  trap : diff=-0.3333 over 75 pairs / 3 cells | strat 90% [-0.427, -0.240] 95% [-0.440, -0.227] | cluster 90% [-0.507, -0.173] 95% [-0.533, -0.147] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 0.000 vs 0.320; claude-sonnet-5-5 0.000 vs 0.520; gemini-3.5-flash-lite 0.040 vs 0.200
+  vs standard       wb_inv_code  turns: diff=+1.0667 over 75 pairs / 3 cells | strat 90% [+0.813, +1.320] 95% [+0.760, +1.373] | cluster 90% [+0.773, +1.347] 95% [+0.720, +1.400] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 5.760 vs 4.880; claude-sonnet-5-5 6.120 vs 4.920; gemini-3.5-flash-lite 6.120 vs 5.000
+  vs harness_check  BB           acc  : diff=+0.2743 over 75 pairs / 3 cells | strat 90% [+0.230, +0.319] 95% [+0.221, +0.328] | cluster 90% [+0.129, +0.410] 95% [+0.109, +0.450] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 0.948 vs 0.834; claude-sonnet-5-5 1.000 vs 0.543; gemini-3.5-flash-lite 0.776 vs 0.525
+  vs harness_check  BB           turns: diff=+1.2800 over 75 pairs / 3 cells | strat 90% [+1.107, +1.453] 95% [+1.080, +1.480] | cluster 90% [+0.240, +2.333] 95% [+0.027, +2.733] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 4.960 vs 3.880; claude-sonnet-5-5 4.960 vs 4.960; gemini-3.5-flash-lite 7.760 vs 5.000
+  vs harness_check  wb_inv_code  acc  : diff=+0.2616 over 75 pairs / 3 cells | strat 90% [+0.209, +0.314] 95% [+0.199, +0.323] | cluster 90% [+0.118, +0.401] 95% [+0.101, +0.457] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 0.944 vs 0.750; claude-sonnet-5-5 1.000 vs 0.538; gemini-3.5-flash-lite 0.822 vs 0.693
+  vs harness_check  wb_inv_code  trap : diff=-0.0667 over 75 pairs / 3 cells | strat 90% [-0.120, -0.013] 95% [-0.133, -0.013] | cluster 90% [-0.187, +0.027] 95% [-0.213, +0.040] | p=0.1286 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 0.000 vs 0.200; claude-sonnet-5-5 0.000 vs 0.040; gemini-3.5-flash-lite 0.040 vs 0.000
+  vs harness_check  wb_inv_code  turns: diff=+1.2800 over 75 pairs / 3 cells | strat 90% [+1.013, +1.547] 95% [+0.960, +1.600] | cluster 90% [+0.987, +1.613] 95% [+0.933, +1.693] | p=0.0001 | equiv±0.05 strat=False clus=False | equiv±0.10 strat=False clus=False
+      per model: claude-haiku-5-5 5.760 vs 4.560; claude-sonnet-5-5 6.120 vs 5.000; gemini-3.5-flash-lite 6.120 vs 4.600
+
+Locked 8-turn condition (same models where it was run):
+  claude-haiku-5-5         BB           n= 25 acc=0.840 trap= 0 turns=3.52 cost/trial=$0.0020
+  claude-haiku-5-5         wb_inv_code  n= 25 acc=1.000 trap= 0 turns=6.32 cost/trial=$0.0027
+  claude-sonnet-5-5        BB           n= 25 acc=1.000 trap= 0 turns=4.96 cost/trial=$0.0142
+  claude-sonnet-5-5        wb_inv_code  n= 25 acc=1.000 trap= 0 turns=5.80 cost/trial=$0.0365

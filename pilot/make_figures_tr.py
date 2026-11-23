@@ -2,10 +2,11 @@
 """
 Elsevier (double-column 185 mm = 7.28 in) SCI-compliant Turkish figure generator
 for: "Araç Destekli Büyük Dil Modeli Denetçilerinde Gözlemciye Göre Sanal Kara-Kutu
-Bariyerleri ve Hesaplamalı Blackwell Tersinmesi"
+Özelliği ve Hesaplamalı Blackwell Tersinmesi"
 
-Reads verified statistics strictly from pilot/report_c3_unified.json.
-Zero API cost. Exports 6 vector PDFs (Type 42 fonts) + 600 DPI PNGs.
+Reads verified statistics from pilot/report_c3_unified.json (locked data) and, when it
+exists, pilot/report_followup.json (follow-up runs). Zero API cost. Exports vector PDFs
+(Type 42 fonts) + 600 DPI PNGs.
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 C3_REPORT = ROOT / "pilot" / "report_c3_unified.json"
+FOLLOWUP_REPORT = ROOT / "pilot" / "report_followup.json"
 FIG_DIR = ROOT / "paper_tr" / "figures"
 
 W_DOUBLE = 7.28
@@ -145,18 +147,18 @@ def make_fig0_workflow() -> None:
             "x": 0.06, "w": 2.12, "dashed": False,
             "num": "1", "title": "Test Üretimi",
             "items": [
-                ("Deney 1 (VBB)", "4-XOR kod, MBA ve ReLU"),
-                ("Deney 2 (Tuzak)", "5 eşdeğer BB/WB varyantı"),
-                ("Kontrol", "Leakage gate (η = 0,50)"),
+                ("Deney 1 (Arka Kapı)", "4-XOR kod, MBA ve ReLU"),
+                ("Deney 2 (Yanıltıcı Dal)", "5 beyaz-kutu varyantı"),
+                ("Kontrol", "Sızıntı testi (η = 0,50)"),
             ],
         },
         {
             "x": 2.60, "w": 2.12, "dashed": True,
-            "num": "2", "title": "İzole Sandbox",
+            "num": "2", "title": "Yalıtılmış Ortam",
             "items": [
-                ("Oracle Arayüzü", "Ortak BB/WB (q ≤ 80)"),
-                ("Python Süreci", "Sadece WB yerel erişim"),
-                ("Eşit Bütçe", "3t, 5t, 8t; 4096/8192 tok."),
+                ("Sorgu Arayüzü", "Ortak BB/WB (q ≤ 80)"),
+                ("Python Süreci", "Dosya yalnızca WB kipinde"),
+                ("Eşit Bütçe", "Kip başına 3, 5 veya 8 tur"),
             ],
         },
         {
@@ -173,8 +175,8 @@ def make_fig0_workflow() -> None:
             "num": "4", "title": "Analiz",
             "items": [
                 ("İstatistik", "Fisher, permütasyon, Holm"),
-                ("Kayıp Ayrımı", "Tuzak, truncation, JSON"),
-                ("Bütünlük", "7.631 deneme, 16 test"),
+                ("Kayıp Ayrıştırması", "Tuzak, kesilme, diğer"),
+                ("Bütünlük", "7.631 deneme, 18 test"),
             ],
         },
     ]
@@ -291,7 +293,7 @@ def make_fig1(c3: Dict[str, Any]) -> None:
 
     fig, (ax1, ax2) = plt.subplots(
         1, 2, figsize=(W_DOUBLE, 3.45),
-        gridspec_kw={"width_ratios": [1.22, 1.0], "wspace": 0.28},
+        gridspec_kw={"width_ratios": [1.22, 1.0], "wspace": 0.34},
     )
 
     models_a = [
@@ -301,17 +303,16 @@ def make_fig1(c3: Dict[str, Any]) -> None:
         ("Gemini 4\nCarbon", "gemini-4-carbon"),
     ]
     bars_spec = [
-        ("Şeffaf: code_clean", "transparent", "code_clean", C_BLUE, ""),
-        ("Şeffaf: 3-katm. W0", "transparent", "relu_weights_dense", C_TEAL, "//"),
-        ("VBB-Zor: code_clean", "vbb_hard", "code_clean", C_VERM, ""),
-        ("VBB-Zor: 3-katm. W0", "vbb_hard", "relu_weights_dense", C_AMBER, "xx"),
+        ("Çözülebilir: sade kod", "transparent", "code_clean", C_BLUE, ""),
+        ("Çözülebilir: yoğun ağırlık", "transparent", "relu_weights_dense", C_TEAL, "//"),
+        ("Zor: sade kod", "vbb_hard", "code_clean", C_VERM, ""),
+        ("Zor: yoğun ağırlık", "vbb_hard", "relu_weights_dense", C_AMBER, "xx"),
     ]
     x = np.arange(len(models_a))
     width = 0.19
     offsets = [-1.5 * width, -0.5 * width, 0.5 * width, 1.5 * width]
 
     ax1.axhline(0.0, color=C_DARK, linewidth=0.75, zorder=1)
-    ax1.axhspan(-0.18, 0.18, color="#F3F4F6", alpha=0.65, zorder=0)
 
     for b_idx, (lbl, reg, sub, col, hatch) in enumerate(bars_spec):
         vals, lo_e, hi_e, stars_l = [], [], [], []
@@ -343,18 +344,18 @@ def make_fig1(c3: Dict[str, Any]) -> None:
     ax1.set_ylabel("Ayırt Etme Avantajı (Adv = TPR \u2212 FPR)")
     ax1.set_ylim(-0.52, 1.16)
     ax1.yaxis.set_major_formatter(tr_axis_fmt(1, signed=True))
-    ax1.set_title("(a) 4xor_strict Ayırt Etme Avantajı (N=22-60)", loc="left", fontsize=7.5, fontweight="bold", pad=7)
+    ax1.set_title("(a) Sertleştirilmiş 4-XOR Ailesi (N = 22\u201360)", loc="left", fontsize=7.5, fontweight="bold", pad=7)
     ax1.legend(loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=2, frameon=True, facecolor="white", edgecolor="#D1D5DB", fontsize=6.1, handlelength=1.4)
 
     # Panel (b): Single-variable m phase transition (4xor_fixed120, n=120, k=4, eta=0.20)
-    regimes_b = ["m = 900\n(VBB-Zor)", "m = 4.400\n(Şeffaf)"]
+    regimes_b = ["m = 900 denklem\n(zor)", "m = 4.400 denklem\n(çözülebilir)"]
     xb = np.arange(len(regimes_b))
     series_b = [
-        ("Canon+Kikuchi-2 (klasik)", [-0.04, 1.00], [0.0, 0.0], [0.0, 0.0], C_GRAY, "s", "--"),
-        ("Haiku 5.5 (code_clean)", [], [], [], C_VERM, "o", "-"),
-        ("Sonnet 5.5 (code_clean)", [], [], [], C_BLUE, "D", "-"),
-        ("Haiku 5.5 (relu_weights)", [], [], [], C_AMBER, "^", ":"),
-        ("Sonnet 5.5 (relu_weights)", [], [], [], C_TEAL, "v", ":"),
+        ("Klasik saldırı (Canon + Kikuchi-2)", [-0.04, 1.00], [0.0, 0.0], [0.0, 0.0], C_GRAY, "s", "--"),
+        ("Haiku 5.5 (sade kod)", [], [], [], C_VERM, "o", "-"),
+        ("Sonnet 5.5 (sade kod)", [], [], [], C_BLUE, "D", "-"),
+        ("Haiku 5.5 (seyrek ağırlık)", [], [], [], C_AMBER, "^", ":"),
+        ("Sonnet 5.5 (seyrek ağırlık)", [], [], [], C_TEAL, "v", ":"),
     ]
     model_sub_map = [
         None,
@@ -386,84 +387,100 @@ def make_fig1(c3: Dict[str, Any]) -> None:
     ax2.set_xlim(-0.35, 1.35)
     ax2.set_ylim(-0.68, 1.16)
     ax2.yaxis.set_major_formatter(tr_axis_fmt(1, signed=True))
-    ax2.set_title("(b) Sabit (n=120, η=0,20) Tek-Değişken m Fazı", loc="left", fontsize=7.4, fontweight="bold", pad=7)
+    ax2.set_ylabel("Ayırt Etme Avantajı (Adv)")
+    ax2.set_title("(b) Sabit Boyutlu 4-XOR: Denklem Sayısının Etkisi", loc="left", fontsize=7.4, fontweight="bold", pad=7)
     ax2.legend(loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=2, frameon=True, facecolor="white", edgecolor="#D1D5DB", fontsize=5.9)
 
     save_both(fig, "fig1_exp1_vbb_hierarchy")
 
 
 # ==============================================================================
-# ŞEKİL 3 (fig2): 9 Anthropic Modeli Kronolojik Seyri + long_ref + Opus 4.6 8192
+# ŞEKİL (fig2): Dokuz Anthropic modelinde varyantlara göre Delta_WB (grup sırasıyla)
 # ==============================================================================
-def make_fig2(c3: Dict[str, Any]) -> None:
+def make_fig2(c3: Dict[str, Any], fu: Dict[str, Any]) -> None:
     cells = c3["exp2"]["cells"]
+    # Metindeki üç grup sırası; grup içinde yayın tarihine göre.
     models = [
         ("claude-sonnet-4-5-20250929", "Sonnet\n4.5"),
         ("claude-haiku-4-5-20251001", "Haiku\n4.5"),
         ("claude-opus-4-6", "Opus\n4.6"),
         ("claude-sonnet-4-6", "Sonnet\n4.6*"),
         ("claude-opus-4-8", "Opus\n4.8"),
-        ("claude-fable-5-2", "Fable\n5.2"),
         ("claude-haiku-5-5", "Haiku\n5.5"),
         ("claude-sonnet-5-5", "Sonnet\n5.5"),
         ("claude-opus-5-5", "Opus\n5.5"),
+        ("claude-fable-5-2", "Fable\n5.2"),
     ]
+    groups = [("Birinci grup", 0, 1), ("İkinci grup", 2, 6), ("Üçüncü grup", 7, 8)]
     x = np.arange(len(models))
-    fig, ax = plt.subplots(figsize=(W_DOUBLE, 3.15))
+    fig, ax = plt.subplots(figsize=(W_DOUBLE, 3.25))
 
+    ax.axhspan(-0.52, 0.0, color="#FDF2EE", alpha=0.55, zorder=0)
+    for i in range(0, len(models), 2):
+        ax.axvspan(i - 0.5, i + 0.5, color="#000000", alpha=0.035, linewidth=0, zorder=0)
     ax.axhline(0.0, color=C_DARK, linewidth=0.9, zorder=2)
-    ax.axhspan(-0.48, 0.0, color="#FDF2EE", alpha=0.55, zorder=0)
 
-    specs = [
-        ("wb_clean", "wb_clean (temiz kod)", C_TEAL, "^", "--", 1.25, -0.06),
-        ("wb_decoy_trivial_guard", "trivial_guard (kısa ölü kod)", C_GRAY, "s", ":", 1.20, -0.02),
-        ("wb_inv_relu", "wb_inv_relu (opak 3-katm. MLP)", C_BLUE, "D", "-", 1.45, +0.02),
-        ("wb_inv_code", "wb_inv_code (4-XOR MBA)", C_VERM, "o", "-", 1.85, +0.06),
-    ]
-    for var, lbl, col, mk, ls, lw, xoff in specs:
-        ys, lo_e, hi_e = [], [], []
-        for mkey, _ in models:
-            c = get_exp2_cell(cells, mkey)
-            vd = c["variants"][var]["vs_bb"]
-            d = vd["delta_wb"]
-            ys.append(d)
-            lo_e.append(max(0.0, d - vd["ci_lo"]))
-            hi_e.append(max(0.0, vd["ci_hi"] - d))
-        mfc = "white" if var == "wb_decoy_trivial_guard" else col
-        ax.plot(x + xoff, ys, color=col, marker=mk, linestyle=ls, linewidth=lw, markersize=4.8,
-                markerfacecolor=mfc, markeredgecolor=col, label=lbl, zorder=4)
-        ax.errorbar(x + xoff, ys, yerr=[lo_e, hi_e], fmt="none", ecolor=col, elinewidth=0.65, capsize=1.8, alpha=0.65, zorder=3)
+    fu_refut = {r["model"]: r["delta_wb_refutable"] for r in fu.get("part_a_refutable_extension", {}).get("models", [])}
 
-    lr_x, lr_y = [], []
-    for idx, (mkey, _) in enumerate(models):
+    def refut_delta(mkey: str) -> Any:
         c = get_exp2_cell(cells, mkey)
         if "wb_decoy_long_refutable_guard" in c["variants"]:
-            lr_x.append(idx + 0.12)
-            lr_y.append(c["variants"]["wb_decoy_long_refutable_guard"]["vs_bb"]["delta_wb"])
-    ax.scatter(lr_x, lr_y, marker="v", s=34, facecolor="white", edgecolor=C_PURPLE, linewidth=1.35,
-               label="long_refutable (O(1) çürütülebilir)", zorder=6)
+            vd = c["variants"]["wb_decoy_long_refutable_guard"]["vs_bb"]
+            return vd["delta_wb"], vd["ci_lo"], vd["ci_hi"]
+        if mkey in fu_refut:
+            d = fu_refut[mkey]
+            return d["diff"], d["ci95"][0], d["ci95"][1]
+        return None
 
+    specs = [
+        ("wb_clean", "Sade kod", C_TEAL, "^", 4.6, -0.28),
+        ("wb_decoy_trivial_guard", "Kısa kontrol", C_GRAY, "s", 4.2, -0.14),
+        ("wb_decoy_long_refutable_guard", "Çürütülebilir kontrol", C_PURPLE, "v", 4.8, 0.0),
+        ("wb_inv_code", "Zor koruyuculu kod", C_VERM, "o", 5.4, +0.14),
+        ("wb_inv_relu", "Opak ağırlık", C_BLUE, "D", 4.2, +0.28),
+    ]
+    for var, lbl, col, mk, ms, xoff in specs:
+        xs, ys, lo_e, hi_e = [], [], [], []
+        for i, (mkey, _) in enumerate(models):
+            if var == "wb_decoy_long_refutable_guard":
+                t = refut_delta(mkey)
+                if t is None:
+                    continue
+                d, lo, hi = t
+            else:
+                vd = get_exp2_cell(cells, mkey)["variants"][var]["vs_bb"]
+                d, lo, hi = vd["delta_wb"], vd["ci_lo"], vd["ci_hi"]
+            xs.append(i + xoff)
+            ys.append(d)
+            lo_e.append(max(0.0, d - lo))
+            hi_e.append(max(0.0, hi - d))
+        hollow = var in ("wb_decoy_trivial_guard", "wb_decoy_long_refutable_guard")
+        ax.errorbar(xs, ys, yerr=[lo_e, hi_e], fmt="none", ecolor=col, elinewidth=0.7, capsize=1.6, alpha=0.75, zorder=3)
+        ax.plot(xs, ys, linestyle="none", marker=mk, markersize=ms, color=col,
+                markerfacecolor="white" if hollow else col, markeredgecolor=col,
+                markeredgewidth=1.2 if hollow else 0.6, label=lbl, zorder=5)
+
+    i46 = [m[0] for m in models].index("claude-opus-4-6")
     c_o46_8k = get_exp2_cell(cells, "claude-opus-4-6", mt="8192")
     d_8k = c_o46_8k["variants"]["wb_inv_code"]["vs_bb"]["delta_wb"]
-    ax.scatter([2.14], [d_8k], marker="*", s=68, color=C_AMBER, edgecolor=C_DARK, linewidth=0.6,
-               label="Opus 4.6 (mt=8192, 0 kesinti)", zorder=7)
-    ax.annotate(
-        f"mt=8192: {tr_num(d_8k, 3, True)}\n(0 kesinti, %33 tuzak)",
-        xy=(2.14, d_8k), xytext=(2.58, -0.25),
-        fontsize=6.1, color=C_DARK, fontweight="bold",
-        arrowprops={"arrowstyle": "->", "color": C_DARK, "lw": 0.75},
-        bbox={"boxstyle": "round,pad=0.22", "facecolor": "#FFFBEB", "edgecolor": C_AMBER, "lw": 0.7},
-        zorder=8,
-    )
+    ax.scatter([i46 + 0.14], [d_8k], marker="*", s=62, color=C_AMBER, edgecolor=C_DARK, linewidth=0.6,
+               label="Opus 4.6, zor koruyuculu kod, token tavanı 8.192", zorder=7)
+
+    for (glbl, i0, i1) in groups:
+        ax.text((i0 + i1) / 2.0, 0.575, glbl, ha="center", va="center", fontsize=6.6, fontweight="bold", color=C_DARK)
+    for xsep in (1.5, 6.5):
+        ax.axvline(xsep, color=C_DARK, linestyle="-", linewidth=0.7, zorder=2)
 
     ax.set_xticks(x)
     ax.set_xticklabels([m[1] for m in models])
+    ax.set_xlim(-0.5, len(models) - 0.5)
     ax.set_ylabel(r"Net Beyaz-Kutu Avantajı ($\Delta_{\mathrm{WB}} = \mathrm{WB} - \mathrm{BB}$)")
-    ax.set_ylim(-0.48, 0.44)
+    ax.set_ylim(-0.52, 0.62)
+    ax.set_yticks([-0.4, -0.2, 0.0, 0.2, 0.4])
     ax.yaxis.set_major_formatter(tr_axis_fmt(1, signed=True))
     ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=3, frameon=True, facecolor="white", edgecolor="#D1D5DB", framealpha=0.95, fontsize=6.0)
-    ax.text(0.985, 0.05, r"Anti-Şeffaf Bölge ($\Delta_{\mathrm{WB}} < 0$)", transform=ax.transAxes,
-            ha="right", fontsize=6.9, color=C_VERM, fontweight="bold")
+    ax.text(0.995, 0.03, r"Tersinme ($\Delta_{\mathrm{WB}} < 0$)", transform=ax.transAxes,
+            ha="right", fontsize=6.6, color=C_VERM, fontweight="bold")
 
     save_both(fig, "fig2_exp2_chronology")
 
@@ -483,10 +500,10 @@ def make_fig3(c3: Dict[str, Any]) -> None:
     xe = np.arange(len(efforts))
 
     effort_models = [
-        ("Haiku 5.5 (Anthropic, küçük)", "claude-haiku-5-5", C_VERM, "o", "-", 1.8),
-        ("Gemini 3.5 Lite (Google, küçük)", "gemini-3.5-flash-lite", C_AMBER, "s", "--", 1.7),
-        ("Sonnet 5.5 (Anthropic, orta)", "claude-sonnet-5-5", C_BLUE, "D", "-", 1.7),
-        ("Opus 4.8 (Anthropic, büyük)", "claude-opus-4-8", C_TEAL, "^", ":", 1.5),
+        ("Haiku 5.5", "claude-haiku-5-5", C_VERM, "o", "-", 1.8),
+        ("Gemini 3.5 Flash-Lite", "gemini-3.5-flash-lite", C_AMBER, "s", "--", 1.7),
+        ("Sonnet 5.5", "claude-sonnet-5-5", C_BLUE, "D", "-", 1.7),
+        ("Opus 4.8", "claude-opus-4-8", C_TEAL, "^", ":", 1.5),
     ]
     for lbl, mkey, col, mk, ls, lw in effort_models:
         rates = [100.0 * get_exp2_cell(cells, mkey, effort=ef)["variants"]["wb_inv_code"]["decoy_rate"] for ef in efforts]
@@ -507,24 +524,24 @@ def make_fig3(c3: Dict[str, Any]) -> None:
     ax1.set_xticklabels(eff_labels)
     ax1.set_xlim(-0.32, 2.32)
     ax1.set_ylim(-2, 78)
-    ax1.set_ylabel("wb_inv_code Tuzağa Takılma Oranı (%)")
-    ax1.set_title("(a) Efor Taraması: İki Sağlayıcıda Aşırı Düşünme", loc="left", fontsize=7.2, fontweight="bold", pad=7)
+    ax1.set_ylabel("Zor Koruyuculu Kodda Tuzak Oranı (%)")
+    ax1.set_title("(a) Efor Taraması: İki Sağlayıcıdan Dört Model", loc="left", fontsize=7.2, fontweight="bold", pad=7)
     ax1.legend(loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=2, frameon=True, facecolor="white", edgecolor="#D1D5DB", fontsize=5.8)
 
     tracks_b = [
-        ("3t / 3t\n(Sıkı)", "matched_total_budget"),
-        ("5t / 5t\n(Orta)", "matched_medium_budget"),
-        ("8t / 8t\n(Eşit Geniş)", "matched_wide_equal_budget"),
+        ("3 tur", "matched_total_budget"),
+        ("5 tur", "matched_medium_budget"),
+        ("8 tur", "matched_wide_equal_budget"),
     ]
     xb = np.arange(len(tracks_b))
     ax2.axhline(0.0, color=C_DARK, linewidth=0.8, zorder=1)
     ax2.axhspan(-0.40, 0.0, color="#FDF2EE", alpha=0.5, zorder=0)
 
     b_series = [
-        ("Haiku 5.5 · wb_inv_code", "claude-haiku-5-5", "wb_inv_code", C_VERM, "o", "-", 1.7, -0.05),
-        ("Haiku 5.5 · wb_inv_relu", "claude-haiku-5-5", "wb_inv_relu", C_AMBER, "s", "--", 1.35, -0.02),
-        ("Sonnet 5.5 · wb_inv_code", "claude-sonnet-5-5", "wb_inv_code", C_BLUE, "D", "-", 1.7, +0.02),
-        ("Sonnet 5.5 · wb_inv_relu", "claude-sonnet-5-5", "wb_inv_relu", C_TEAL, "^", ":", 1.35, +0.05),
+        ("Haiku 5.5 · zor koruyuculu kod", "claude-haiku-5-5", "wb_inv_code", C_VERM, "o", "-", 1.7, -0.05),
+        ("Haiku 5.5 · opak ağırlık", "claude-haiku-5-5", "wb_inv_relu", C_AMBER, "s", "--", 1.35, -0.02),
+        ("Sonnet 5.5 · zor koruyuculu kod", "claude-sonnet-5-5", "wb_inv_code", C_BLUE, "D", "-", 1.7, +0.02),
+        ("Sonnet 5.5 · opak ağırlık", "claude-sonnet-5-5", "wb_inv_relu", C_TEAL, "^", ":", 1.35, +0.05),
     ]
     for lbl, mkey, var, col, mk, ls, lw, xoff in b_series:
         ys, lo_e, hi_e = [], [], []
@@ -539,8 +556,8 @@ def make_fig3(c3: Dict[str, Any]) -> None:
         ax2.errorbar(xb + xoff, ys, yerr=[lo_e, hi_e], fmt="none", ecolor=col, elinewidth=0.7, capsize=2.0, alpha=0.75, zorder=3)
 
     ax2.annotate(
-        "Eşit 8t/8t:\nSonnet 5.5 = +0,000\nHaiku 5.5 WB = 1,000\n(%0 tuzak)",
-        xy=(2.0, 0.0), xytext=(1.05, -0.34),
+        "8 turda iki modelde de\n$\\Delta_{\\mathrm{WB}} \\geq 0$ ve tuzak oranı %0",
+        xy=(2.0, 0.0), xytext=(0.95, -0.33),
         fontsize=5.9, color=C_DARK, fontweight="bold",
         arrowprops={"arrowstyle": "->", "color": C_DARK, "lw": 0.75},
         bbox={"boxstyle": "round,pad=0.22", "facecolor": "#ECFDF5", "edgecolor": C_TEAL, "lw": 0.75},
@@ -548,11 +565,12 @@ def make_fig3(c3: Dict[str, Any]) -> None:
     )
     ax2.set_xticks(xb)
     ax2.set_xticklabels([t[0] for t in tracks_b])
+    ax2.set_xlabel("Kip başına konuşma turu sayısı")
     ax2.set_xlim(-0.32, 2.32)
     ax2.set_ylim(-0.40, 0.28)
     ax2.set_ylabel(r"Net Beyaz-Kutu Avantajı ($\Delta_{\mathrm{WB}} = \mathrm{WB} - \mathrm{BB}$)")
     ax2.yaxis.set_major_formatter(tr_axis_fmt(1, signed=True))
-    ax2.set_title("(b) Eşit Tur Bütçesi Faz Geçişi (3t, 5t, 8t)", loc="left", fontsize=7.2, fontweight="bold", pad=7)
+    ax2.set_title("(b) Tur Bütçesinin Etkisi (BB ve WB Eşit Turda)", loc="left", fontsize=7.2, fontweight="bold", pad=7)
     ax2.legend(loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=2, frameon=True, facecolor="white", edgecolor="#D1D5DB", fontsize=5.8)
 
     save_both(fig, "fig3_exp2_effort_budget")
@@ -569,42 +587,42 @@ def make_fig4(c3: Dict[str, Any]) -> None:
     )
 
     rows_a = [
-        ("Haiku 5.5 (3t)", "claude-haiku-5-5", "medium", "matched_total_budget", "majority3"),
-        ("Haiku 5.5 (5t high)", "claude-haiku-5-5", "high", "matched_medium_budget", "majority3"),
-        ("Sonnet 5.5 (5t med)", "claude-sonnet-5-5", "medium", "matched_medium_budget", "majority3"),
-        ("Sonnet 5.5 (dlist3)", "claude-sonnet-5-5", "medium", "matched_medium_budget", "dlist3"),
-        ("Opus 4.6 (5t med)", "claude-opus-4-6", "medium", "matched_medium_budget", "majority3"),
+        ("Haiku 5.5 (3 tur)", "claude-haiku-5-5", "medium", "matched_total_budget", "majority3"),
+        ("Haiku 5.5 (high efor)", "claude-haiku-5-5", "high", "matched_medium_budget", "majority3"),
+        ("Sonnet 5.5", "claude-sonnet-5-5", "medium", "matched_medium_budget", "majority3"),
+        ("Sonnet 5.5 (Karar Listesi-3)", "claude-sonnet-5-5", "medium", "matched_medium_budget", "dlist3"),
+        ("Opus 4.6", "claude-opus-4-6", "medium", "matched_medium_budget", "majority3"),
         ("Gemini 3.8 Flash", "gemini-3.8-flash", "medium", "matched_medium_budget", "majority3"),
-        ("Gemma 4 31B (açık)", "gemma-4-31b-it", "medium", "matched_medium_budget", "majority3"),
+        ("Gemma 4 31B", "gemma-4-31b-it", "medium", "matched_medium_budget", "majority3"),
     ]
     y = np.arange(len(rows_a))
     h = 0.19
     v_specs = [
-        ("wb_inv_relu", "wb_inv_relu (opak MLP)", C_BLUE, "", +1.5 * h),
-        ("wb_decoy_trivial_guard", "trivial_guard (kısa ölü)", C_GRAY, "", +0.5 * h),
-        ("wb_decoy_long_refutable_guard", "long_refutable (O(1) MBA)", C_PURPLE, "//", -0.5 * h),
-        ("wb_inv_code", "wb_inv_code (4-XOR MBA)", C_VERM, "", -1.5 * h),
+        ("wb_inv_relu", "Opak ağırlık", C_BLUE, "", +1.5 * h),
+        ("wb_decoy_trivial_guard", "Kısa kontrol", C_GRAY, "", +0.5 * h),
+        ("wb_decoy_long_refutable_guard", "Çürütülebilir kontrol", C_PURPLE, "//", -0.5 * h),
+        ("wb_inv_code", "Zor koruyuculu kod", C_VERM, "", -1.5 * h),
     ]
     for vkey, lbl, col, hatch, yoff in v_specs:
         accs = [get_exp2_cell(cells, m, effort=ef, track=trk, task=tsk)["variants"][vkey]["acc"] for _, m, ef, trk, tsk in rows_a]
-        ax1.barh(y + yoff, accs, height=h * 0.90, color=col, edgecolor=C_DARK, linewidth=0.45, hatch=hatch, label=lbl, zorder=3)
+        ax1.barh(y + yoff, np.array(accs) - 0.5, left=0.5, height=h * 0.90, color=col, edgecolor=C_DARK, linewidth=0.45, hatch=hatch, label=lbl, zorder=3)
 
     ax1.set_yticks(y)
     ax1.set_yticklabels([r[0] for r in rows_a], fontsize=6.6)
     ax1.invert_yaxis()
-    ax1.set_xlim(0.45, 1.05)
+    ax1.set_xlim(0.5, 1.03)
     ax1.xaxis.set_major_formatter(tr_axis_fmt(1, signed=False))
-    ax1.set_xlabel("Beyaz-Kutu Test Doğruluğu (Acc)")
-    ax1.set_title("(a) Sözdizimsel Uzunluk ile 4-XOR Karşılaştırması", loc="left", fontsize=7.0, fontweight="bold", pad=7)
+    ax1.set_xlabel("Beyaz-kutu test doğruluğu (Acc)")
+    ax1.set_title("(a) Dört Beyaz-Kutu Varyantının Doğruluğu", loc="left", fontsize=7.0, fontweight="bold", pad=7)
     ax1.legend(loc="upper center", bbox_to_anchor=(0.48, -0.17), ncol=2, frameon=True, facecolor="white", edgecolor="#D1D5DB", fontsize=5.8)
 
     rows_b = [
         ("Sonnet 4.5", "claude-sonnet-4-5-20250929", "medium", "4096"),
-        ("Opus 4.6 (4096)", "claude-opus-4-6", "medium", "4096"),
-        ("Opus 4.6 (8192)", "claude-opus-4-6", "medium", "8192"),
-        ("Haiku 5.5 (high)", "claude-haiku-5-5", "high", "4096"),
-        ("Sonnet 5.5 (med)", "claude-sonnet-5-5", "medium", "4096"),
-        ("Gem. 3.5 (high)", "gemini-3.5-flash-lite", "high", "4096"),
+        ("Opus 4.6 (tavan 4.096)", "claude-opus-4-6", "medium", "4096"),
+        ("Opus 4.6 (tavan 8.192)", "claude-opus-4-6", "medium", "8192"),
+        ("Haiku 5.5 (high efor)", "claude-haiku-5-5", "high", "4096"),
+        ("Sonnet 5.5", "claude-sonnet-5-5", "medium", "4096"),
+        ("Gemini 3.5 Flash-Lite\n(high efor)", "gemini-3.5-flash-lite", "high", "4096"),
         ("Gemma 4 31B", "gemma-4-31b-it", "medium", "4096"),
         ("Gemma 4 26B", "gemma-4-26b-a4b-it", "medium", "4096"),
     ]
@@ -618,9 +636,9 @@ def make_fig4(c3: Dict[str, Any]) -> None:
         lo.append(v["loss_other"])
     ld_a, lt_a, lo_a = np.array(ld), np.array(lt), np.array(lo)
 
-    ax2.barh(yb, ld_a, height=0.62, color=C_VERM, edgecolor=C_DARK, linewidth=0.5, label="Saf tuzağa takılma")
-    ax2.barh(yb, lt_a, left=ld_a, height=0.62, color=C_AMBER, edgecolor=C_DARK, linewidth=0.5, hatch="//", label="Token kesilmesi (truncation)")
-    ax2.barh(yb, lo_a, left=ld_a + lt_a, height=0.62, color=C_GRAY, edgecolor=C_DARK, linewidth=0.5, hatch="..", label="Diğer hata / JSON parse")
+    ax2.barh(yb, ld_a, height=0.62, color=C_VERM, edgecolor=C_DARK, linewidth=0.5, label="Tuzak kural seçildi")
+    ax2.barh(yb, lt_a, left=ld_a, height=0.62, color=C_AMBER, edgecolor=C_DARK, linewidth=0.5, hatch="//", label="Token kesilmesi")
+    ax2.barh(yb, lo_a, left=ld_a + lt_a, height=0.62, color=C_GRAY, edgecolor=C_DARK, linewidth=0.5, hatch="..", label="Diğer yanlış yanıt veya geçersiz biçim")
 
     for yi, tot in zip(yb, ld_a + lt_a + lo_a):
         ax2.text(tot + 0.012, yi, tr_num(tot, 2), va="center", ha="left", fontsize=6.2, color=C_DARK, fontweight="bold")
@@ -630,110 +648,201 @@ def make_fig4(c3: Dict[str, Any]) -> None:
     ax2.invert_yaxis()
     ax2.set_xlim(0.0, 0.58)
     ax2.xaxis.set_major_formatter(tr_axis_fmt(1, signed=False))
-    ax2.set_xlabel("wb_inv_code Toplam Doğruluk Kaybı (1 \u2212 Acc)")
-    ax2.set_title("(b) Üç Yönlü Kayıp Ayrıştırması (mt=4096 ve 8192)", loc="left", fontsize=7.0, fontweight="bold", pad=7)
+    ax2.set_xlabel("Doğruluk kaybı (1 \u2212 Acc)")
+    ax2.set_title("(b) Zor Koruyuculu Kodda Doğruluk Kaybının Bileşenleri", loc="left", fontsize=7.0, fontweight="bold", pad=7)
     ax2.legend(loc="upper center", bbox_to_anchor=(0.48, -0.17), ncol=2, frameon=True, facecolor="white", edgecolor="#D1D5DB", fontsize=5.8)
 
     save_both(fig, "fig4_transparency_illusion")
 
 
 # ==============================================================================
-# ŞEKİL 6 (fig5 — YENİ): Çapraz-Sağlayıcı Google Gemini + Açık Ağırlıklı Gemma 4
+# ŞEKİL (fig5): Google Gemini + Gemma 4 doğruluğu; 15 modelde tuzak oranları
 # ==============================================================================
-def make_fig5_cross_provider(c3: Dict[str, Any]) -> None:
+def make_fig5_cross_provider(c3: Dict[str, Any], fu: Dict[str, Any]) -> None:
     cells = c3["exp2"]["cells"]
     fig, (ax1, ax2) = plt.subplots(
-        1, 2, figsize=(W_DOUBLE, 3.95),
-        gridspec_kw={"width_ratios": [1.18, 1.0], "wspace": 0.48},
+        1, 2, figsize=(W_DOUBLE, 4.35),
+        gridspec_kw={"width_ratios": [1.12, 1.0], "wspace": 0.62},
     )
 
     gp_models = [
-        ("Gemma4\n26B MoE", "gemma-4-26b-a4b-it"),
-        ("Gemma4\n31B", "gemma-4-31b-it"),
-        ("Gem. 3.1\nLite", "gemini-3.1-flash-lite"),
-        ("Gem. 3.5\nLite", "gemini-3.5-flash-lite"),
-        ("Gem. 3.8\nFlash", "gemini-3.8-flash"),
-        ("Gem. 4\nCarbon", "gemini-4-carbon"),
+        ("Gemma 4\n26B", "gemma-4-26b-a4b-it"),
+        ("Gemma 4\n31B", "gemma-4-31b-it"),
+        ("Gemini 3.1\nFlash-Lite", "gemini-3.1-flash-lite"),
+        ("Gemini 3.5\nFlash-Lite", "gemini-3.5-flash-lite"),
+        ("Gemini 3.8\nFlash", "gemini-3.8-flash"),
+        ("Gemini 4\nCarbon", "gemini-4-carbon"),
     ]
     xg = np.arange(len(gp_models))
     w = 0.19
     g_specs = [
-        ("wb_clean", "wb_clean", C_TEAL, "", -1.5 * w),
-        ("wb_decoy_long_refutable_guard", "long_refutable", C_PURPLE, "//", -0.5 * w),
-        ("wb_inv_code", "wb_inv_code", C_VERM, "", +0.5 * w),
-        ("wb_inv_relu", "wb_inv_relu", C_BLUE, "", +1.5 * w),
+        ("wb_clean", "Sade kod", C_TEAL, "", -1.5 * w),
+        ("wb_decoy_long_refutable_guard", "Çürütülebilir kontrol", C_PURPLE, "//", -0.5 * w),
+        ("wb_inv_code", "Zor koruyuculu kod", C_VERM, "", +0.5 * w),
+        ("wb_inv_relu", "Opak ağırlık", C_BLUE, "", +1.5 * w),
     ]
     for vkey, lbl, col, hatch, xoff in g_specs:
-        vals = [get_exp2_cell(cells, mkey)["variants"][vkey]["acc"] for _, mkey in gp_models]
-        ax1.bar(xg + xoff, vals, width=w * 0.90, color=col, edgecolor=C_DARK, linewidth=0.45, hatch=hatch, label=lbl, zorder=3)
+        vals = np.array([get_exp2_cell(cells, mkey)["variants"][vkey]["acc"] for _, mkey in gp_models])
+        ax1.bar(xg + xoff, vals - 0.5, bottom=0.5, width=w * 0.90, color=col, edgecolor=C_DARK, linewidth=0.45, hatch=hatch, label=lbl, zorder=3)
 
     bb_vals = [get_exp2_cell(cells, mkey)["bb_acc"] for _, mkey in gp_models]
-    ax1.plot(xg, bb_vals, color=C_DARK, marker="D", linestyle="--", linewidth=1.1, markersize=4.2,
-             markerfacecolor="white", label="Kara-kutu (BB)", zorder=5)
+    ax1.plot(xg, bb_vals, color=C_DARK, marker="D", linestyle="none", markersize=4.6,
+             markerfacecolor="white", markeredgewidth=1.0, label="Kara-kutu (BB)", zorder=5)
 
+    ax1.axhline(0.5, color=C_DARK, linewidth=0.7, zorder=2)
     ax1.axvline(1.5, color=C_GRAY, linestyle=":", linewidth=0.9, zorder=2)
-    ax1.text(0.5, 1.03, "Açık Ağırlıklı", ha="center", va="bottom", fontsize=6.2, color=C_GRAY, fontweight="bold")
-    ax1.text(3.5, 1.03, "Google Gemini (4 Nesil)", ha="center", va="bottom", fontsize=6.2, color=C_BLUE, fontweight="bold")
+    ax1.text(0.5, 1.035, "Gemma 4", ha="center", va="bottom", fontsize=6.2, color=C_DARK, fontweight="bold")
+    ax1.text(3.5, 1.035, "Google Gemini", ha="center", va="bottom", fontsize=6.2, color=C_DARK, fontweight="bold")
 
     ax1.set_xticks(xg)
-    ax1.set_xticklabels([m[0] for m in gp_models], fontsize=5.8)
-    ax1.set_ylim(0.45, 1.12)
+    ax1.set_xticklabels([m[0].replace("\n", " ") for m in gp_models], fontsize=5.8, rotation=32, ha="right", rotation_mode="anchor")
+    ax1.set_ylim(0.47, 1.10)
+    ax1.set_yticks([0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
     ax1.yaxis.set_major_formatter(tr_axis_fmt(1, signed=False))
-    ax1.set_ylabel("Test Doğruluğu (Acc)")
-    ax1.set_title("(a) Google Gemini ve Gemma 4 Ölçekleme Yasası", loc="left", fontsize=7.0, fontweight="bold", pad=7)
-    ax1.legend(loc="upper center", bbox_to_anchor=(0.50, -0.17), ncol=3, frameon=True, facecolor="white", edgecolor="#D1D5DB", fontsize=5.7, columnspacing=0.9)
+    ax1.set_ylabel("Test doğruluğu (Acc)")
+    ax1.set_title("(a) Gemini ve Gemma 4 Modellerinde Doğruluk", loc="left", fontsize=7.0, fontweight="bold", pad=7)
+    ax1.legend(loc="upper center", bbox_to_anchor=(0.50, -0.24), ncol=3, frameon=True, facecolor="white", edgecolor="#D1D5DB", fontsize=5.7, columnspacing=0.9)
 
     all_15 = [
-        ("Sonnet 4.5 (A)", "claude-sonnet-4-5-20250929", C_VERM),
-        ("Haiku 4.5 (A)", "claude-haiku-4-5-20251001", C_VERM),
-        ("Opus 4.6 (A)", "claude-opus-4-6", C_VERM),
-        ("Sonnet 4.6 (A)", "claude-sonnet-4-6", C_VERM),
-        ("Opus 4.8 (A)", "claude-opus-4-8", C_VERM),
-        ("Haiku 5.5 (A)", "claude-haiku-5-5", C_VERM),
-        ("Sonnet 5.5 (A)", "claude-sonnet-5-5", C_VERM),
-        ("Fable 5.2 (A)", "claude-fable-5-2", C_TEAL),
-        ("Opus 5.5 (A)", "claude-opus-5-5", C_TEAL),
-        ("Gem. 3.1 Lite (G)", "gemini-3.1-flash-lite", C_BLUE),
-        ("Gem. 3.5 Lite (G)", "gemini-3.5-flash-lite", C_BLUE),
-        ("Gem. 3.8 Flash (G)", "gemini-3.8-flash", C_BLUE),
-        ("Gem. 4 Carbon (G)", "gemini-4-carbon", C_TEAL),
-        ("Gemma 4 26B (O)", "gemma-4-26b-a4b-it", C_PURPLE),
-        ("Gemma 4 31B (O)", "gemma-4-31b-it", C_PURPLE),
+        ("Sonnet 4.5", "claude-sonnet-4-5-20250929"),
+        ("Haiku 4.5", "claude-haiku-4-5-20251001"),
+        ("Opus 4.6", "claude-opus-4-6"),
+        ("Sonnet 4.6", "claude-sonnet-4-6"),
+        ("Opus 4.8", "claude-opus-4-8"),
+        ("Haiku 5.5", "claude-haiku-5-5"),
+        ("Sonnet 5.5", "claude-sonnet-5-5"),
+        ("Opus 5.5", "claude-opus-5-5"),
+        ("Fable 5.2", "claude-fable-5-2"),
+        ("Gemini 3.1 Flash-Lite", "gemini-3.1-flash-lite"),
+        ("Gemini 3.5 Flash-Lite", "gemini-3.5-flash-lite"),
+        ("Gemini 3.8 Flash", "gemini-3.8-flash"),
+        ("Gemini 4 Carbon", "gemini-4-carbon"),
+        ("Gemma 4 26B", "gemma-4-26b-a4b-it"),
+        ("Gemma 4 31B", "gemma-4-31b-it"),
     ]
-    y15 = np.arange(len(all_15))
-    code_dec = [100.0 * get_exp2_cell(cells, m)["variants"]["wb_inv_code"]["decoy_rate"] for _, m, _ in all_15]
-    cols15 = [col for _, _, col in all_15]
+    fu_trap = {r["model"]: 100.0 * r["trap_refut"] for r in fu.get("part_a_refutable_extension", {}).get("main_condition_per_model", [])}
+    y15 = np.arange(len(all_15), dtype=float)
+    hb = 0.36
+    code_dec, ref_dec = [], []
+    for _, m in all_15:
+        c = get_exp2_cell(cells, m)
+        code_dec.append(100.0 * c["variants"]["wb_inv_code"]["decoy_rate"])
+        if "wb_decoy_long_refutable_guard" in c["variants"]:
+            ref_dec.append(100.0 * c["variants"]["wb_decoy_long_refutable_guard"]["decoy_rate"])
+        else:
+            ref_dec.append(fu_trap.get(m))
 
-    ax2.barh(y15, code_dec, height=0.66, color=cols15, edgecolor=C_DARK, linewidth=0.45, zorder=3)
+    ax2.barh(y15 - hb / 2, code_dec, height=hb, color=C_VERM, edgecolor=C_DARK, linewidth=0.45, label="Zor koruyuculu kod", zorder=3)
+    ry = [yy + hb / 2 for yy, v in zip(y15, ref_dec) if v is not None]
+    rv = [v for v in ref_dec if v is not None]
+    ax2.barh(ry, rv, height=hb, color=C_PURPLE, edgecolor=C_DARK, linewidth=0.45, hatch="//", label="Çürütülebilir kontrol", zorder=3)
     for yi, val in zip(y15, code_dec):
-        lbl_v = f"%{val:.0f}" if val > 0 else "%0 (bağışık)"
-        col_t = C_TEAL if val == 0 else C_DARK
-        ax2.text(val + 1.8, yi, lbl_v, va="center", ha="left", fontsize=5.8, color=col_t, fontweight="bold" if val == 0 else "normal")
+        ax2.text(val + 1.6, yi - hb / 2, f"%{val:.0f}", va="center", ha="left", fontsize=5.3, color=C_DARK)
+    for yi, val in zip(y15, ref_dec):
+        if val is None:
+            ax2.text(3.0, yi + hb / 2 + 0.02, "sınanamadı", va="center", ha="left", fontsize=5.1, color=C_GRAY, style="italic")
+        else:
+            ax2.text(val + 1.6, yi + hb / 2, f"%{val:.0f}", va="center", ha="left", fontsize=5.3, color=C_DARK)
 
-    ax2.axhline(8.5, color=C_GRAY, linestyle=":", linewidth=0.75)
-    ax2.axhline(12.5, color=C_GRAY, linestyle=":", linewidth=0.75)
+    for ysep in (8.5, 12.5):
+        ax2.axhline(ysep, color=C_DARK, linestyle="-", linewidth=0.6)
+    for ylab, txt in ((8.0, "Anthropic"), (12.0, "Google Gemini"), (13.0, "Gemma 4")):
+        ax2.text(124, ylab, txt, ha="right", va="center", fontsize=6.0, fontweight="bold", color=C_DARK)
     ax2.set_yticks(y15)
-    ax2.set_yticklabels([r[0] for r in all_15], fontsize=6.0)
+    ax2.set_yticklabels([r[0] for r in all_15], fontsize=5.9)
     ax2.invert_yaxis()
     ax2.set_xlim(0, 126)
     ax2.set_xticks([0, 25, 50, 75, 100])
-    ax2.set_xlabel("wb_inv_code Tuzak Oranı (%)\n[wb_inv_relu: tüm 15 modelde %0]")
-    ax2.set_title("(b) 3 Ailede 15 Model: Tuzak ve Eşik (A/G/O)", loc="left", fontsize=6.9, fontweight="bold", pad=7)
+    ax2.set_xlabel("Tuzak oranı (%)")
+    ax2.set_title("(b) 15 Modelde Tuzak Oranı", loc="left", fontsize=7.0, fontweight="bold", pad=7)
+    ax2.legend(loc="upper center", bbox_to_anchor=(0.42, -0.24), ncol=2, frameon=True, facecolor="white", edgecolor="#D1D5DB", fontsize=5.7)
 
     save_both(fig, "fig5_cross_provider_gemma")
+
+
+# ==============================================================================
+# ŞEKİL (fig6): Ek koşular — üç protokolde tuzak oranı ve doğruluk
+# ==============================================================================
+def make_fig6_protocols(fu: Dict[str, Any]) -> None:
+    summ = fu.get("part_b_protocols", {}).get("summary_by_model_protocol", [])
+    if not summ:
+        return
+    by = {(r["model"], r["protocol"]): r for r in summ}
+    models = [
+        ("Haiku 5.5", "claude-haiku-5-5"),
+        ("Sonnet 5.5", "claude-sonnet-5-5"),
+        ("Gemini 3.5\nFlash-Lite", "gemini-3.5-flash-lite"),
+        ("Gemini 3.8\nFlash", "gemini-3.8-flash"),
+    ]
+    protos = [
+        ("standard", "Standart", C_GRAY, ""),
+        ("verify_first", "Sınama yönergesi", C_BLUE, "//"),
+        ("harness_check", "Yanıt denetimi", C_AMBER, ".."),
+    ]
+    fig, (ax1, ax2) = plt.subplots(
+        1, 2, figsize=(W_DOUBLE, 3.05),
+        gridspec_kw={"width_ratios": [1.0, 1.0], "wspace": 0.30},
+    )
+    x = np.arange(len(models))
+    w = 0.25
+    for j, (pkey, plbl, col, hatch) in enumerate(protos):
+        xo = x + (j - 1) * w
+        rows = [by[(m, pkey)] for _, m in models]
+        # (a) trap rate
+        tr = np.array([100.0 * r["trap_rate"] for r in rows])
+        lo = np.array([100.0 * r["trap_ci95"][0] for r in rows])
+        hi = np.array([100.0 * r["trap_ci95"][1] for r in rows])
+        ax1.bar(xo, tr, width=w * 0.90, color=col, edgecolor=C_DARK, linewidth=0.5, hatch=hatch, label=plbl, zorder=3)
+        ax1.errorbar(xo, tr, yerr=[tr - lo, hi - tr], fmt="none", ecolor=C_DARK, elinewidth=0.7, capsize=1.8, zorder=4)
+        for xi, v, h in zip(xo, tr, hi):
+            ax1.text(xi, h + 1.5, f"%{v:.0f}", ha="center", va="bottom", fontsize=5.6, color=C_DARK)
+        # (b) accuracy on decoy code, bars from the 0.5 chance level
+        ac = np.array([r["acc_decoy_code"] for r in rows])
+        alo = np.array([r["acc_decoy_code_ci95"][0] for r in rows])
+        ahi = np.array([r["acc_decoy_code_ci95"][1] for r in rows])
+        ax2.bar(xo, ac - 0.5, bottom=0.5, width=w * 0.90, color=col, edgecolor=C_DARK, linewidth=0.5, hatch=hatch, zorder=3)
+        ax2.errorbar(xo, ac, yerr=[np.maximum(0, ac - alo), np.maximum(0, ahi - ac)], fmt="none", ecolor=C_DARK, elinewidth=0.7, capsize=1.8, zorder=4)
+        bb = [r["acc_bb"] for r in rows]
+        ax2.plot(xo, bb, linestyle="none", marker="D", markersize=4.4, markerfacecolor="white", markeredgecolor=C_DARK,
+                 markeredgewidth=1.0, label="Kara-kutu, aynı protokol" if j == 0 else None, zorder=6)
+
+    ax1.set_xticks(x)
+    ax1.set_xticklabels([m[0] for m in models])
+    ax1.set_ylim(0, 72)
+    ax1.set_ylabel("Tuzak oranı (%)")
+    ax1.set_title("(a) Yanıltıcı Dallı Kodda Tuzak Oranı", loc="left", fontsize=7.2, fontweight="bold", pad=7)
+
+    ax2.axhline(0.5, color=C_DARK, linewidth=0.7, zorder=2)
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([m[0] for m in models])
+    ax2.set_ylim(0.47, 1.06)
+    ax2.set_yticks([0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+    ax2.yaxis.set_major_formatter(tr_axis_fmt(1, signed=False))
+    ax2.set_ylabel("Test doğruluğu (Acc)")
+    ax2.set_title("(b) Yanıltıcı Dallı Kodda Doğruluk", loc="left", fontsize=7.2, fontweight="bold", pad=7)
+
+    h1, l1 = ax1.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    fig.legend(h1 + h2, l1 + l2, loc="lower center", bbox_to_anchor=(0.5, -0.07), ncol=4, frameon=True,
+               facecolor="white", edgecolor="#D1D5DB", fontsize=6.0)
+
+    save_both(fig, "fig6_protocols")
 
 
 def main() -> None:
     setup_style()
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     c3 = json.loads(C3_REPORT.read_text(encoding="utf-8"))
+    # Kilitli veri kümesinden sonra yürütülen ek koşuların raporu (yoksa şekiller yalnızca kilitli veriyi gösterir).
+    fu = json.loads(FOLLOWUP_REPORT.read_text(encoding="utf-8")) if FOLLOWUP_REPORT.exists() else {}
     make_fig0_workflow()
     make_fig1(c3)
-    make_fig2(c3)
+    make_fig2(c3, fu)
     make_fig3(c3)
     make_fig4(c3)
-    make_fig5_cross_provider(c3)
-    print(f"Generated 6 polished SCI-compliant Turkish figures (PDF + 600 DPI PNG) in {FIG_DIR}")
+    make_fig5_cross_provider(c3, fu)
+    make_fig6_protocols(fu)
+    print(f"Generated Turkish figures (PDF + 600 DPI PNG) in {FIG_DIR}")
 
 
 if __name__ == "__main__":
