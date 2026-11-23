@@ -8,7 +8,7 @@ to prevent artificial advantage inflation on discrete or tied statistics.
 from __future__ import annotations
 
 import math
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.linalg import eigvalsh
@@ -19,7 +19,6 @@ from scipy.stats import norm
 from .generators import (
     BlackwellInvInstance,
     KXorInstance,
-    generate_blackwell_inv_instance,
 )
 from .validators import eval_exported_weights
 
@@ -564,7 +563,11 @@ def score_rule_prediction(
     pred_support: Sequence[int],
     pred_signs: Sequence[int],
 ) -> Dict[str, float]:
-    """Evaluate a predicted majority3 or dtree2 rule (support, signs) on inst.test_X."""
+    """Evaluate a predicted majority3, dlist3 or dtree2 rule (support, signs) on inst.test_X.
+
+    An invalid answer (empty, mismatched lengths or an index out of range) scores
+    heldout_acc = 0.5 and matches_decoy = 0.
+    """
     supp = [int(i) for i in pred_support]
     sgns = [1 if int(s) >= 0 else -1 for s in pred_signs]
     if len(supp) != len(sgns) or len(supp) == 0 or any(i < 0 or i >= inst.n for i in supp):

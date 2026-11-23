@@ -17,19 +17,14 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 
-def binary_entropy(p: float) -> float:
-    if p <= 0.0 or p >= 1.0:
-        return 0.0
-    return -(p * math.log2(p) + (1.0 - p) * math.log2(1.0 - p))
-
-
 def kl_bernoulli_bits(p: float, q: float = 0.5) -> float:
+    """KL divergence between Bernoulli(p) and Bernoulli(q), in bits."""
     if p <= 0.0:
         return math.log2(1.0 / (1.0 - q))
     if p >= 1.0:
@@ -51,8 +46,9 @@ def relu(z: np.ndarray) -> np.ndarray:
     return np.maximum(0.0, z)
 
 
-def _deterministic_seed(master_seed: int, tag: str) -> int:
-    h = hashlib.sha256(f"{master_seed}:{tag}".encode("utf-8")).digest()
+def deterministic_seed(master_seed: int, tag: str) -> int:
+    """A 32-bit seed derived from a master seed and a tag, so that each random stream is independent."""
+    h =hashlib.sha256(f"{master_seed}:{tag}".encode()).digest()
     return int.from_bytes(h[:8], "little") % (2**32 - 1)
 
 
@@ -246,7 +242,7 @@ def generate_kxor_instance(
             b1[idx] = biases_g[g]
             w2[idx] = float(y_prime[r]) * coeffs_g[g]
 
-    # For eta == 0.5 control, pick a realistic threshold matching eta_ref=0.10 so b2 scale looks identical!
+    # The eta = 0.5 control uses the threshold of eta = 0.10, so its b2 scale looks like a real instance.
     eta_for_tau = 0.10 if eta >= 0.499 else eta
     tau_raw = m * (1.0 - 2.0 * eta_for_tau) - z_margin * 2.0 * math.sqrt(max(m * eta_for_tau * (1.0 - eta_for_tau), 1.0))
     # Snap tau to half-integer so |S(x) - tau| >= 0.5 for all x in {-1,+1}^n (exact ReLU indicator)
@@ -380,7 +376,7 @@ class BlackwellInvInstance:
                 "    return 1 if score > 0 else 0\n"
             )
 
-        rng_c = np.random.default_rng(_deterministic_seed(self.seed, f"wb_inv_code_orth_{self.task_type}"))
+        rng_c = np.random.default_rng(deterministic_seed(self.seed, f"wb_inv_code_orth_{self.task_type}"))
         A_rand = rng_c.normal(0.0, 1.0, size=(self.n, self.n))
         Q, _ = np.linalg.qr(A_rand)
         Q_list = [[round(float(v), 12) for v in row] for row in Q]
@@ -470,7 +466,7 @@ class BlackwellInvInstance:
 
         if self.variant == "wb_decoy_trivial_guard":
             # Causal ablation control: identical _branch_a and orthogonal _branch_b,
-            # but _gate(x) is a trivially provable dead-code predicate over {-1, +1}^n!
+            # but _gate(x) is a trivially provable dead-code predicate over {-1, +1}^n.
             return (
                 f"# Compiled policy function f(x) over x in {{-1, +1}}^{self.n}\n"
                 f"N = {self.n}\n"
@@ -536,7 +532,7 @@ class BlackwellInvInstance:
             h3 = ReLU(W3 @ h2 + b3)     [D3 = 3]
             z  = w4 @ h3 + b4           [output = 1 if z >= 0 else 0; exact +/- 0.5 margin]
         """
-        rng_r = np.random.default_rng(_deterministic_seed(self.seed, f"wb_inv_relu_unified_{self.task_type}"))
+        rng_r = np.random.default_rng(deterministic_seed(self.seed, f"wb_inv_relu_unified_{self.task_type}"))
         n = self.n
         A_rand = rng_r.normal(0.0, 1.0, size=(n, n))
         Q, _ = np.linalg.qr(A_rand)
@@ -728,13 +724,13 @@ def generate_blackwell_inv_instance(
     true_signs = tuple(int(v) for v in rng.choice([-1, 1], size=support_size))
     decoy_signs = tuple(int(v) for v in rng.choice([-1, 1], size=support_size))
 
-    guard_seed = _deterministic_seed(seed, "guard_q")
+    guard_seed = deterministic_seed(seed, "guard_q")
     guard = generate_kxor_instance(
         n=n,
         m=guard_m,
         k=guard_k,
         eta=guard_eta,
-        planted=0,  # Certified UNSAT Q!
+        planted=0,  # certified UNSAT clean instance
         regime="vbb_hard_guard",
         seed=guard_seed,
         z_margin=2.5,
@@ -744,7 +740,7 @@ def generate_blackwell_inv_instance(
         f"Guard UNSAT certificate too weak: log2_fp_ub={guard.log2_fp_ub:.2f}"
     )
 
-    test_rng = np.random.default_rng(_deterministic_seed(seed, "heldout_test"))
+    test_rng = np.random.default_rng(deterministic_seed(seed, "heldout_test"))
     test_X = test_rng.choice([-1, 1], size=(100, n)).astype(np.int8)
 
     tag = "" if task_type == "majority3" else f"_{task_type}"

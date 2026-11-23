@@ -20,13 +20,13 @@ each instance, check the WB answer against the oracle function on k fresh
 random inputs, keep it if all agree and otherwise fall back to the BB answer
 of the same seed and cell.
 
-Scoring convention (inherited from the scorer in baselines.py and used by
-analyze.py / analyze_c3_unified.py): a trial whose final answer is not a valid
-rule scores heldout_acc = 0.50 and matches_decoy = 0.
+Scoring convention (inherited from the scorer in baselines.py and used by the other
+analysis modules): a trial whose final answer is not a valid rule scores
+heldout_acc = 0.50 and matches_decoy = 0.
 
 Run from the repository root:
-    python3 -m pilot.analyze_mechanism --out-json pilot/report_mechanism.json \
-        > pilot/report_mechanism.txt
+    python -m blackwell_inversion.analysis.mechanism --out-json reports/report_mechanism.json \
+        > reports/report_mechanism.txt
 """
 
 from __future__ import annotations
@@ -39,10 +39,12 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .analyze import load_jsonl, paired_delta_stats
+from ..baselines import score_rule_prediction
+from ..generators import deterministic_seed, generate_blackwell_inv_instance
+from ..paths import C2_FILE, C3_MERGED_FILE, MECHANISM_REPORT_JSON
+from .stats import load_jsonl, paired_delta_stats
 
-ROOT = Path(__file__).resolve().parent
-SOURCES = [ROOT / "results_c2_pilot.jsonl", ROOT / "results_c3_expansion.jsonl"]
+SOURCES = [C2_FILE, C3_MERGED_FILE]
 
 N_BOOT = 10_000
 N_PERM = 10_000
@@ -574,9 +576,7 @@ _CHECK_CACHE: Dict[Tuple[int, str, str], Tuple[np.ndarray, np.ndarray]] = {}
 
 
 def instance_for(r: Record) -> Any:
-    """Regenerate the instance exactly as runner.run_exp2_trial does."""
-    from .generators import generate_blackwell_inv_instance
-
+    """Regenerate the instance exactly as exp2.run_exp2_trial does."""
     key = (int(r["seed"]), r["task_type"], r["variant"])
     if key not in _INST_CACHE:
         _INST_CACHE[key] = generate_blackwell_inv_instance(
@@ -592,12 +592,10 @@ def check_points(r: Record) -> Tuple[np.ndarray, np.ndarray]:
     held-out stream, so the points are independent of the scoring points; the
     first k rows are used for budget k (nested checks). Labels come from
     eval_inv, i.e. exactly what query_oracle would have returned."""
-    from .generators import _deterministic_seed
-
     key = (int(r["seed"]), r["task_type"], r["variant"])
     if key not in _CHECK_CACHE:
         inst = instance_for(r)
-        rng = np.random.default_rng(_deterministic_seed(int(r["seed"]), f"{ARB_SEED_TAG}_{r['task_type']}"))
+        rng = np.random.default_rng(deterministic_seed(int(r["seed"]), f"{ARB_SEED_TAG}_{r['task_type']}"))
         X = rng.choice([-1, 1], size=(max(ARB_KS), inst.n)).astype(np.int8)
         _CHECK_CACHE[key] = (X, inst.eval_inv(X))
     return _CHECK_CACHE[key]
@@ -626,8 +624,6 @@ def predict(inst: Any, r: Record, X: np.ndarray) -> np.ndarray:
 def verify_logged_scores(rows: Sequence[Record]) -> Dict[str, int]:
     """Regenerate every Exp 2 instance, check logged truth/decoy, and rescore the
     logged answer with baselines.score_rule_prediction; all must match."""
-    from .baselines import score_rule_prediction
-
     n_checked = 0
     for r in rows:
         inst = instance_for(r)
@@ -942,7 +938,7 @@ def report_part3(p3: Dict[str, Any]) -> None:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--out-json", default=str(ROOT / "report_mechanism.json"))
+    ap.add_argument("--out-json", default=str(MECHANISM_REPORT_JSON), help="Report JSON path.")
     args = ap.parse_args(argv)
 
     rows = load_exp2()

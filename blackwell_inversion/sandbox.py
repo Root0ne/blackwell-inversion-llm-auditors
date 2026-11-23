@@ -1,11 +1,17 @@
-"""Isolated Python execution sandbox and parent-process metered black-box oracle.
+"""Workspace in which agent-written Python runs, and the metered black-box oracle.
 
-Security & anti-cheat invariants:
-  1. Ground-truth secrets and oracle evaluation NEVER enter the sandbox directory or child env.
-  2. Child subprocess runs with sanitized environment (ANTHROPIC_API_KEY and host secrets stripped),
-     Python isolated mode (-I), CPU/memory resource limits, and hard wall-clock timeout.
-  3. MeteredOracle lives strictly in the parent process, enforces max_queries exactly, validates
-     all query vectors in {-1, +1}^n, and appends query results to queries.json inside the sandbox.
+Anti-cheating and hygiene guarantees:
+  1. The ground truth and the oracle never enter the workspace directory or the child's
+     environment; the workspace holds only the white-box artifact (WB mode) and queries.json.
+  2. The child process gets an allowlisted environment (no API keys or other host variables),
+     runs with `python -E -s` (environment variables and user site-packages ignored; the
+     workspace is on sys.path so `import artifact` works), under CPU-time and address-space
+     limits (Linux `resource`) and a wall-clock timeout.
+  3. MeteredOracle lives in the parent process, enforces max_queries exactly, accepts only
+     vectors in {-1, +1}^n and appends every answered query to queries.json.
+
+This is not a security boundary: the child runs as the same user, with the same file
+system and network access as the harness.
 """
 
 from __future__ import annotations
@@ -18,7 +24,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -49,7 +55,7 @@ class MeteredOracle:
 
     def __init__(
         self,
-        instance: Union[KXorInstance, BlackwellInvInstance],
+        instance: KXorInstance | BlackwellInvInstance,
         max_queries: int,
         queries_json_path: Optional[Path] = None,
     ) -> None:
@@ -199,7 +205,7 @@ class IsolatedPythonSandbox:
         self.exec_count = 0
         self.total_wall_s = 0.0
 
-    def __enter__(self) -> "IsolatedPythonSandbox":
+    def __enter__(self) -> IsolatedPythonSandbox:
         self._tmpdir = tempfile.TemporaryDirectory(prefix="vbb_pilot_sbx_")
         self.workdir = Path(self._tmpdir.name)
         return self

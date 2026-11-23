@@ -12,7 +12,7 @@ seeds 5000-5024) and are stored in two separate files:
 
 Part A pairs each new refutable-control trial with the hard-guard-code trial and the
 BB trial of the same model and seed in the locked data, and repeats the pooled
-equivalence analysis of analyze_mechanism.py on the extended set of cells.
+equivalence analysis of the mechanism module on the extended set of cells.
 
 Part B compares the protocols within model and seed. It also compares the freshly run
 standard protocol with the locked records of the same cells (replication check).
@@ -33,8 +33,8 @@ Scoring convention as in the other analysis scripts: an answer that is not a val
 rule scores heldout_acc = 0.50 and matches_decoy = 0.
 
 Run from the repository root:
-    python3 -m pilot.analyze_followup --out-json pilot/report_followup.json \
-        > pilot/report_followup.txt
+    python -m blackwell_inversion.analysis.followup --out-json reports/report_followup.json \
+        > reports/report_followup.txt
 """
 
 from __future__ import annotations
@@ -48,8 +48,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .analyze import load_jsonl, paired_delta_stats
-from .analyze_mechanism import (
+from ..baselines import score_rule_prediction
+from ..exp2 import predict_rule_outputs
+from ..paths import CHECK_TOOLS_FILE, PROTOCOLS_FILE, REFUTABLE_FILE
+from .mechanism import (
     CLEAN,
     CODE,
     N_BOOT,
@@ -58,9 +60,10 @@ from .analyze_mechanism import (
     SEED,
     acc,
     arm,
-    build_pairs,
-    contrast,
     both_valid,
+    build_pairs,
+    cell_key,
+    contrast,
     instance_for,
     is_main,
     load_exp2,
@@ -68,14 +71,8 @@ from .analyze_mechanism import (
     pooled_paired,
     strat_two_group,
     trapped,
-    cell_key,
 )
-from .baselines import score_rule_prediction
-
-ROOT = Path(__file__).resolve().parent
-REFUT_FILE = ROOT / "results_c4_refutable.jsonl"
-PROTO_FILE = ROOT / "results_c4_protocols.jsonl"
-CHECK_TOOLS_FILE = ROOT / "results_c5_check_tools.jsonl"
+from .stats import load_jsonl, paired_delta_stats
 
 PROTOCOLS = ("standard", "verify_first", "harness_check")
 ARMS_B = ("BB", CLEAN, CODE, REFUT)
@@ -142,8 +139,6 @@ def own_query_evidence(r: Record) -> Optional[Dict[str, int]]:
 
     Returns the number of queries and the number of them on which the answered rule
     disagrees with the oracle output; None if the answer is invalid or no log was kept."""
-    from .runner import predict_rule_outputs
-
     if "oracle_history" not in r or not r.get("parse_ok"):
         return None
     hist = r["oracle_history"]
@@ -831,8 +826,8 @@ def report_d(d: Dict[str, Any]) -> None:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out-json", default="", help="Write the full result structure to this JSON file.")
-    ap.add_argument("--refutable", default=str(REFUT_FILE))
-    ap.add_argument("--protocols", default=str(PROTO_FILE))
+    ap.add_argument("--refutable", default=str(REFUTABLE_FILE))
+    ap.add_argument("--protocols", default=str(PROTOCOLS_FILE))
     ap.add_argument("--check-tools", default=str(CHECK_TOOLS_FILE))
     args = ap.parse_args(argv)
 

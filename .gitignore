@@ -1,12 +1,20 @@
-# Yalnızca deney kodu ve kayıtları izlenir; makale taslakları ve çalışma notları depoya girmez.
+# Whitelist: only the experiment code, data, reports and documentation are tracked;
+# manuscript drafts, working notes and generated figures stay out of the repository.
 /*
 !/.gitignore
+!/.github/
 !/README.md
+!/pyproject.toml
 !/requirements.txt
-!/pilot/
+!/blackwell_inversion/
+!/data/
+!/docs/
+!/reports/
+!/tests/
 
 __pycache__/
 *.pyc
+*.egg-info/
 .env
 .env.*
 .venv/

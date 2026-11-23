@@ -1,15 +1,20 @@
-"""Unified C1 + C2 + C3 statistical analysis & dataset merger for the
-Observer-Relative VBB & Computational Blackwell Inversion study.
+"""The main report: Experiments 1 and 2 over the 7,631 trials of the paper.
 
-Merges all C3 expansion JSONLs cleanly (deduplicated by run_key) into
-`pilot/results_c3_expansion.jsonl` (when --write-merged is passed) WITHOUT
-modifying the immutable `pilot/results_c1_haiku55.jsonl` or
-`pilot/results_c2_pilot.jsonl` logs.
+Reads the calibration log (C1), the nine-model Anthropic log (C2) and the expansion
+log (C3: Gemini, Gemma and causal controls) and writes `reports/report_c3_unified.json`,
+with a digest on stdout that is kept as `reports/report_c3_unified.txt`:
 
-Computes exact Fisher, Newcombe-Wilson 95% CI, paired sign-flip permutation,
-paired bootstrap 95% CI, Holm-Bonferroni FWER adjustments, 3-way loss
-decomposition, and full telemetry across all 3 families (Anthropic Claude,
-Google Gemini, Open-Weight Gemma 4).
+    python -m blackwell_inversion.analysis.main_report --out-json reports/report_c3_unified.json \
+        > reports/report_c3_unified.txt
+
+C3 is the merge of the source files in `data/main/expansion_parts/`, deduplicated by
+run_key and trimmed to balanced Gemma seeds; `--write-merged` rewrites
+`data/main/results_c3_expansion.jsonl` from them. The C1 and C2 logs are never modified.
+
+Exp 1 cells get an exact Fisher test and a Newcombe-Wilson CI with Holm adjustment per
+model; Exp 2 cells get paired sign-flip permutation tests and bootstrap CIs against BB
+and against clean code, direct contrasts between WB variants, and a three-way split of
+the accuracy loss (decoy chosen, truncation, other).
 """
 
 from __future__ import annotations
@@ -19,31 +24,34 @@ import hashlib
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .analyze import fisher_adv_test, holm_bonferroni, paired_delta_stats
+from ..paths import C1_FILE, C2_FILE, C3_MERGED_FILE, C3_PARTS_DIR, MAIN_REPORT_JSON
+from .stats import fisher_adv_test, holm_bonferroni, load_jsonl, paired_delta_stats
 
-ROOT = Path(__file__).resolve().parent
-
-C1_FILE = ROOT / "results_c1_haiku55.jsonl"
-C2_FILE = ROOT / "results_c2_pilot.jsonl"
+# Merge order matters: the first record of a run_key wins.
 C3_SOURCES = [
-    ROOT / "results_c3_anth_key1.jsonl",
-    ROOT / "results_c3_anth_key2.jsonl",
-    ROOT / "results_c3_gemini.jsonl",
-    ROOT / "results_c3_gemini31_free.jsonl",
-    ROOT / "results_c3_gemma.jsonl",
-    ROOT / "results_c3_gemma31_clean_k1.jsonl",
-    ROOT / "results_c3_gemma31_controls.jsonl",
-    ROOT / "results_c3_gemma26.jsonl",
-    ROOT / "results_c3_gemma26_k1.jsonl",
+    C3_PARTS_DIR / "results_c3_anth_key1.jsonl",
+    C3_PARTS_DIR / "results_c3_anth_key2.jsonl",
+    C3_PARTS_DIR / "results_c3_gemini.jsonl",
+    C3_PARTS_DIR / "results_c3_gemini31_free.jsonl",
+    C3_PARTS_DIR / "results_c3_gemma.jsonl",
+    C3_PARTS_DIR / "results_c3_gemma31_clean_k1.jsonl",
+    C3_PARTS_DIR / "results_c3_gemma31_controls.jsonl",
+    C3_PARTS_DIR / "results_c3_gemma26.jsonl",
+    C3_PARTS_DIR / "results_c3_gemma26_k1.jsonl",
 ]
-C3_MERGED = ROOT / "results_c3_expansion.jsonl"
+# Seeds at or above these are dropped so each Gemma model has the same N in every cell.
+GEMMA_SEED_LIMITS = {"gemma-4-31b-it": 5015, "gemma-4-26b-a4b-it": 5010}
+N_PERM = 10000
+N_BOOT = 10000
+SEED = 2026
 
 
 def sha256_file(path: Path) -> str:
+    """Hex SHA-256 digest of a file."""
     h = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
@@ -51,41 +59,29 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def load_jsonl(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
-    out: List[Dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            s = line.strip()
-            if s:
-                out.append(json.loads(s))
-    return out
-
-
-def merge_c3(write_merged: bool = False) -> List[Dict[str, Any]]:
+def merge_c3(write_to: Optional[Path] = None, sources: Sequence[Path] = C3_SOURCES) -> List[Dict[str, Any]]:
+    """Merge the C3 source logs; optionally write the merged log to `write_to`."""
     seen: Dict[str, Dict[str, Any]] = {}
     order: List[str] = []
-    for src in C3_SOURCES:
-        for rec in load_jsonl(src):
+    for src in sources:
+        for rec in load_jsonl(src, missing_ok=True):
             rk = rec["run_key"]
-            # Enforce exact balanced N for Gemma 4 open-weight models if extra seeds exist
-            if rec.get("model") == "gemma-4-31b-it" and rec.get("seed", 0) >= 5015:
-                continue
-            if rec.get("model") == "gemma-4-26b-a4b-it" and rec.get("seed", 0) >= 5010:
+            seed_limit = GEMMA_SEED_LIMITS.get(rec.get("model", ""))
+            if seed_limit is not None and rec.get("seed", 0) >= seed_limit:
                 continue
             if rk not in seen:
                 seen[rk] = rec
                 order.append(rk)
     merged = [seen[rk] for rk in order]
-    if write_merged:
-        with C3_MERGED.open("w", encoding="utf-8") as f:
+    if write_to is not None:
+        with write_to.open("w", encoding="utf-8") as f:
             for rec in merged:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return merged
 
 
 def exp1_summary(rows: Sequence[Dict[str, Any]], family: str) -> List[Dict[str, Any]]:
+    """Per-cell Exp 1 advantage with Fisher test; Holm adjustment over each model's WB test cells."""
     groups: Dict[Tuple[str, str, str, str], List[Dict[str, Any]]] = defaultdict(list)
     for r in rows:
         if r.get("run_key", "").startswith("exp1") and r.get("family") == family:
@@ -121,12 +117,12 @@ def exp1_summary(rows: Sequence[Dict[str, Any]], family: str) -> List[Dict[str, 
                 **st,
             }
         )
-    # Family-wide Holm-Bonferroni for non-control WB cells per model
+    # Holm-Bonferroni over each model's non-control WB cells.
     by_model = defaultdict(list)
     for idx, row in enumerate(out):
         if row["regime"] != "control_impossible" and row["substrate"] != "blackbox":
             by_model[row["model"]].append(idx)
-    for m_name, idxs in by_model.items():
+    for idxs in by_model.values():
         pvals = [out[i]["p_value"] for i in idxs]
         adj = holm_bonferroni(pvals)
         for i, pa in zip(idxs, adj):
@@ -136,8 +132,8 @@ def exp1_summary(rows: Sequence[Dict[str, Any]], family: str) -> List[Dict[str, 
 
 
 def exp2_paired_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-    # Group by (model, effort, budget_track, task_type, max_tokens_tag)
-    # Note: Opus 4.6 8192 trials have run_key containing "|mt8192"
+    """Exp 2 cells keyed by (model, effort, budget_track, task_type, token cap) with paired statistics."""
+
     def mt_tag(r: Dict[str, Any]) -> str:
         if "|mt=8192" in r.get("run_key", "") or r.get("max_tokens_override") == 8192:
             return "8192"
@@ -156,18 +152,18 @@ def exp2_paired_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     for cell in sorted(by_cell.keys()):
         model, effort, track, task, mtag = cell
         variants_map = by_cell[cell]
-        # Find BB map (stored under ('BB', 'wb_inv_code') or any ('BB', *))
+        # BB trials are stored under ('BB', 'wb_inv_code'); accept any ('BB', *).
         bb_map: Dict[int, Dict[str, Any]] = {}
-        for (mode, var), smap in variants_map.items():
+        for (mode, _var), smap in variants_map.items():
             if mode == "BB":
                 bb_map.update(smap)
-        # For Opus 4.6 8192, borrow matched BB from 4096 if not separately run
+        # An 8192-token cell without BB trials of its own pairs with the 4096-token BB trials.
         if not bb_map and mtag == "8192":
             alt = by_cell.get((model, effort, track, task, "4096"), {})
-            for (mode, var), smap in alt.items():
+            for (mode, _var), smap in alt.items():
                 if mode == "BB":
                     bb_map.update(smap)
-        # For matched_wide_equal_budget (8t/8t), WB rows live in matched_query_free_code (4t/8t)!
+        # matched_wide_equal_budget (8/8 turns) reuses the WB trials of matched_query_free_code (4/8 turns).
         if track == "matched_wide_equal_budget":
             alt = by_cell.get((model, effort, "matched_query_free_code", task, mtag), {})
             for (mode, var), smap in alt.items():
@@ -198,9 +194,9 @@ def exp2_paired_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
             wb_vals = [smap[s]["heldout_acc"] for s in common_bb]
             bb_vals = [bb_map[s]["heldout_acc"] for s in common_bb]
             alt_dir = "greater" if var == "wb_clean" else "less"
-            st_bb = paired_delta_stats(wb_vals, bb_vals, alternative=alt_dir, n_perm=10000, n_boot=10000, seed=2026)
+            st_bb = paired_delta_stats(wb_vals, bb_vals, alternative=alt_dir, n_perm=N_PERM, n_boot=N_BOOT, seed=SEED)
 
-            # Also compare vs wb_clean (crucial for Google Gemini/Gemma where BB is low!)
+            # Also compare with wb_clean, which matters where BB accuracy is low (Gemini, Gemma).
             st_clean = None
             if clean_map and var != "wb_clean":
                 common_cl = sorted(set(smap.keys()) & set(clean_map.keys()))
@@ -209,9 +205,9 @@ def exp2_paired_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
                         [smap[s]["heldout_acc"] for s in common_cl],
                         [clean_map[s]["heldout_acc"] for s in common_cl],
                         alternative="less",
-                        n_perm=10000,
-                        n_boot=10000,
-                        seed=2026,
+                        n_perm=N_PERM,
+                        n_boot=N_BOOT,
+                        seed=SEED,
                     )
 
             rs_all = list(smap.values())
@@ -219,7 +215,7 @@ def exp2_paired_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
             dec_n = sum(1 for r in rs_all if r.get("matches_decoy"))
             tr_n = sum(1 for r in rs_all if r.get("truncated_turns", 0) > 0)
             ok_n = sum(1 for r in rs_all if r.get("parse_ok"))
-            # 3-way loss decomposition on all WB trials (error = 1 - heldout_acc)
+            # Three-way split of the accuracy loss (1 - heldout_acc) over all WB trials.
             loss_decoy = sum((1.0 - r["heldout_acc"]) for r in rs_all if r.get("matches_decoy")) / n_all
             loss_trunc = sum(
                 (1.0 - r["heldout_acc"]) for r in rs_all if (not r.get("matches_decoy")) and r.get("truncated_turns", 0) > 0
@@ -248,7 +244,7 @@ def exp2_paired_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
                 "vs_clean": st_clean,
             }
 
-        # Direct paired mechanism contrasts
+        # Direct paired contrasts between WB variants.
         contrasts = [
             ("inv_code_minus_trivial", "wb_inv_code", "wb_decoy_trivial_guard", "less"),
             ("inv_code_minus_long_ref", "wb_inv_code", "wb_decoy_long_refutable_guard", "two-sided"),
@@ -265,24 +261,24 @@ def exp2_paired_summary(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
                     [ma[s]["heldout_acc"] for s in common],
                     [mb[s]["heldout_acc"] for s in common],
                     alternative=alt_c,
-                    n_perm=10000,
-                    n_boot=10000,
-                    seed=2026,
+                    n_perm=N_PERM,
+                    n_boot=N_BOOT,
+                    seed=SEED,
                 )
 
         results.append(cell_rec)
     return {"cells": results}
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--write-merged", action="store_true")
-    ap.add_argument("--out-json", default=str(ROOT / "report_c3_unified.json"))
-    args = ap.parse_args()
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    ap = argparse.ArgumentParser(description="Main report over the C1, C2 and C3 logs (writes JSON, prints a digest).")
+    ap.add_argument("--write-merged", action="store_true", help=f"Rewrite {C3_MERGED_FILE.name} from the source files.")
+    ap.add_argument("--out-json", default=str(MAIN_REPORT_JSON), help="Report JSON path.")
+    args = ap.parse_args(argv)
 
-    c1 = load_jsonl(C1_FILE)
-    c2 = load_jsonl(C2_FILE)
-    c3 = merge_c3(write_merged=args.write_merged)
+    c1 = load_jsonl(C1_FILE, missing_ok=True)
+    c2 = load_jsonl(C2_FILE, missing_ok=True)
+    c3 = merge_c3(write_to=C3_MERGED_FILE if args.write_merged else None)
 
     all_c23 = c2 + c3
     models_all = sorted({r["model"] for r in c1 + all_c23})
@@ -320,7 +316,7 @@ def main() -> int:
         "sha256": {
             "c1": sha256_file(C1_FILE),
             "c2": sha256_file(C2_FILE),
-            "c3": sha256_file(C3_MERGED) if C3_MERGED.exists() else None,
+            "c3": sha256_file(C3_MERGED_FILE) if C3_MERGED_FILE.exists() else None,
         },
         "telemetry": telem,
         "exp1_4xor_strict": exp1_strict,
@@ -330,10 +326,9 @@ def main() -> int:
 
     Path(args.out_json).write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    # Concise console digest
-    print(f"=== UNIFIED C1+C2+C3 DIGEST ===")
+    print("=== UNIFIED C1+C2+C3 DIGEST ===")
     print(f"C1={len(c1)} (${total_cost_c1:.2f}), C2={len(c2)} (${total_cost_c2:.2f}), C3={len(c3)} (${total_cost_c3:.2f}) -> TOTAL={len(c1)+len(c2)+len(c3)} trials, {len(models_all)} models")
-    if C3_MERGED.exists():
+    if C3_MERGED_FILE.exists():
         print(f"SHA-256 C3: {report['sha256']['c3']}")
 
     print("\n--- EXP 1: 4xor_strict (POOLED C2+C3) ---")

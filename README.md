@@ -1,184 +1,230 @@
-# Hesaplamalı Blackwell Tersinmesi: Deney Kodu ve Ham Kayıtlar
+# Computational Blackwell Inversion: Experiment Code and Trial Logs
 
-Bu depo, **"Araç Destekli Büyük Dil Modeli Denetçilerinde Gözlemciye Göre Sanal Kara-Kutu Bariyerleri ve Hesaplamalı Blackwell Tersinmesi"** başlıklı makalenin deney kodunu, 7.631 canlı denemenin ham kayıtlarını ve analiz betiklerini içerir. Makale hakem değerlendirmesindedir.
+This repository holds the code, the raw logs of 7,631 live trials, and the analysis
+scripts behind the paper "Observer-Relative Virtual Black-Box Barriers and Computational
+Blackwell Inversion in Tool-Using LLM Auditors" (under review).
 
-*English summary.* Code, raw logs and analysis scripts for a study of tool-using LLM agents acting as security auditors. The study measures when giving an agent white-box access (source code or neural-network weights) on top of black-box query access makes it *less* accurate than black-box access alone under the same interaction budget. Code comments and docstrings are in English; this README and the protocol note are in Turkish.
+## What the benchmark measures
 
-## Çalışma neyi ölçüyor?
+An LLM agent acts as an auditor of a small Boolean function. It is tested in two access
+modes, with the same seeds and the same interaction budget:
 
-Bir denetçi ajan iki erişim kipinde, aynı tohumlar ve aynı bütçe altında sınanır:
+- **Black box (BB):** the agent can only query the function (send inputs, read outputs).
+- **White box (WB):** the agent has the same query interface plus the function's source
+  code or neural-network weights.
 
-- **Kara-kutu (BB):** ajan sistemi yalnızca girdi gönderip çıktı okuyarak inceler.
-- **Beyaz-kutu (WB):** ajan aynı sorgu arayüzüne ek olarak sistemin kaynak kodunu veya sinir ağı ağırlıklarını da görür.
+The difference in success, `Delta_WB = WB - BB`, is the white-box advantage. Intuition says
+it should never be negative: extra information cannot hurt. Two compilers produce
+functions on which it is close to zero or negative, without changing what the function
+computes:
 
-İki kip arasındaki başarı farkı `Delta_WB = WB - BB` olarak raporlanır. Depodaki iki derleyici bu farkın sıfıra yakın kaldığı ve negatife döndüğü koşulları, sistemin dış davranışını değiştirmeden üretir:
+- **Experiment 1 (`exp1`, compiler `C_kXOR`):** decide whether the function hides a planted
+  backdoor (a noisy k-XOR trigger) or is clean. Metric: distinguishing advantage
+  `Adv = TPR - FPR`. In the hard regime the backdoor is built to stay hidden even from an
+  agent that reads the code; in the solvable regime the code gives it away.
+- **Experiment 2 (`exp2`, compiler `C_inv`):** recover a hidden 3-variable rule. The white-box
+  code contains a readable decoy branch that never fires. Metrics: held-out accuracy,
+  `Delta_WB`, and the trap rate (how often the answer equals the decoy rule).
 
-- **Deney 1 (`exp1`, `C_kXOR`):** gürültülü k-XOR denklemlerine gömülü bir arka kapının varlığını ayırt etme görevi.
-- **Deney 2 (`exp2`, `C_inv`):** gizli bir Boole kuralını geri çıkarma görevi; beyaz-kutu temsili, hiçbir girdide çalışmayan yanıltıcı bir tuzak dalı içerir.
+## Quick start
 
-## Dosyalar
+Linux is required (the sandbox uses the `resource` module). The results were produced with
+Python 3.14.4, numpy 2.3.5, scipy 1.16.3 and matplotlib 3.10.7; any Python 3.11 or later
+with these pinned versions should work. The model clients use only the standard library.
 
-Tüm kod `pilot/` paketindedir.
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt        # pinned versions; or: pip install -e ".[figures]"
 
-| Dosya | İçerik |
+python -m unittest discover -s tests -t .    # 92 tests, about 1.5 minutes, no network
+
+# Run the whole pipeline with the zero-cost mock client (about 1 second)
+python -m blackwell_inversion --dry-run --experiment exp2 --models claude-haiku-5-5 \
+    --exp2-seeds 1 --out /tmp/dry.jsonl
+```
+
+`pip install -e .` also installs a `blackwell-inversion` command equivalent to
+`python -m blackwell_inversion`. The old entry point `python -m blackwell_inversion.runner`
+still works.
+
+## Repository map
+
+| Path | Contents |
 | --- | --- |
-| `generators.py` | İki derleyici: `C_kXOR` örnek üreteci (Python kodu, MBA karartmalı kod, 2 ve 3 katmanlı ReLU ağırlıkları) ve `C_inv` üreteci (beş beyaz-kutu varyantı). Alarm eşiği ve yanlış alarm üst sınırı burada hesaplanır. |
-| `validators.py` | Üreteçlerden bağımsız doğrulama: dışa aktarılan kod ve ağırlıkların tüm varyantlarda aynı çıktıyı verdiğini ve bayt-özdeş kontrol çiftinin eşit uzunlukta olduğunu denetler. |
-| `baselines.py` | Sekiz saldırılık klasik referans bataryası (ağırlık istatistikleri, SVD, Canon+Kikuchi spektral çözücü, benzetimli tavlama, WalkSAT) ve kara-kutu avantaj üst sınırı. |
-| `sandbox.py` | Ajanın yazdığı Python kodunu çalıştıran yalıtılmış alt süreç (`IsolatedPythonSandbox`) ve sorgu kotasını uygulayan arayüz (`MeteredOracle`). |
-| `runner.py` | Deney yürütücüsü. Anthropic ve Google Gemini API istemcileri, araç çağrısı döngüsü, maliyet tavanı ve kaldığı yerden devam eden JSONL kaydı. Deney 2 için `--protocol` seçeneğiyle üç önlem protokolü (`verify_first`, `harness_check`, `harness_check_tools`) ve `--log-tool-inputs` ile araç girdilerinin kaydı da buradadır. |
-| `analyze.py` | İstatistik işlevleri: kesin Fisher testi, Newcombe–Wilson güven aralığı, eşleştirilmiş permütasyon testi, bootstrap, Holm–Bonferroni düzeltmesi. |
-| `analyze_c3_unified.py` | Üç kayıt dosyasını birlikte analiz eder ve makaledeki tabloların dayandığı `report_c3_unified.json` raporunu üretir. |
-| `analyze_mechanism.py` | Deney 2 için üç ek analiz: zor koruyuculu kod ile çürütülebilir kontrolün eşdeğerlik analizi, araç çağrısı kayıtlarından ajan davranışı ve yanıtı sorgu arayüzüyle denetleyen karar kuralının kayıtlar üzerinde yeniden oynatımı. `report_mechanism.json` ve `report_mechanism.txt` dosyalarını üretir. |
-| `analyze_followup.py` | Veri kümesi kilitlendikten sonra yürütülen ek koşuların analizi: çürütülebilir kontrolün dört modele genişletilmesi, üç protokolün karşılaştırması, araç kullanımına izin veren yanıt denetimi, ajanın kendi sorgularının yanıtıyla çelişip çelişmediği ve tuzak yanıtların ajan tarafından tahmin olarak sunulup sunulmadığı. `report_followup.json` ve `report_followup.txt` dosyalarını üretir. |
-| `make_figures_tr.py` | Makaledeki şekilleri `report_c3_unified.json` ve `report_followup.json` dosyalarından üretir. |
-| `make_figures.py` | Şekillerin önceki, dokuz modelli İngilizce sürümünü üretir. |
-| `test_pilot.py` | 18 birim ve bütünleşik test. |
-| `on_kayit.md` | Deneylerden önce yazılan yerel çalışma protokolü: hipotezler, tohum dizileri ve karar kuralları. |
-| `results_*.jsonl` | Ham deneme kayıtları (aşağıya bakınız). |
-| `report_*.json`, `report_*.md`, `report_*.txt` | Analiz betiklerinin ürettiği raporlar. |
+| `blackwell_inversion/generators.py` | The two compilers: `C_kXOR` instances (clean code, MBA-obfuscated code, 2- and 3-layer ReLU weights) and `C_inv` instances (five white-box variants). Alarm thresholds and false-alarm bounds are computed here. |
+| `blackwell_inversion/validators.py` | Checks, independent of the generators, that exported code and weights compute the same function in every variant. |
+| `blackwell_inversion/baselines.py` | The eight classical reference attacks (weight statistics, SVD, Canon+Kikuchi spectral solver, simulated annealing, ...), black-box advantage bounds and the Exp 2 scorer. |
+| `blackwell_inversion/sandbox.py` | `IsolatedPythonSandbox` (runs agent-written Python) and `MeteredOracle` (enforces the query budget). |
+| `blackwell_inversion/clients/` | The `ModelClient` contract (`base.py`), the price table, and the Anthropic, Gemini and mock clients. |
+| `blackwell_inversion/agent.py` | Tool schemas and the tool-calling agent loop. |
+| `blackwell_inversion/exp1.py`, `exp2.py` | Trial functions, prompts, regimes, budget tracks and the Exp 2 protocols. |
+| `blackwell_inversion/parsing.py` | Parsers for the agent's final answer. |
+| `blackwell_inversion/schedule.py`, `cli.py` | Trial schedules and run keys; the command line driver with the resumable JSONL log. |
+| `blackwell_inversion/analysis/` | `stats.py` (statistics), `main_report.py`, `mechanism.py`, `followup.py` (the three reports), `figures.py`, and `legacy_report.py` (the earlier stage report). |
+| `data/` | Trial logs, `SHA256SUMS`, and `data/README.md` with the field dictionary. |
+| `reports/` | The three reports the paper relies on; `reports/legacy/` holds superseded stage reports. |
+| `docs/` | [`protocol.md`](docs/protocol.md) (study protocol), [`architecture.md`](docs/architecture.md), [`reproducing.md`](docs/reproducing.md). |
+| `tests/` | Unit, integration and reproduction tests (`unittest`). |
 
-## Kurulum
+## Data
 
-Python 3.14.4, numpy 2.3.5, scipy 1.16.3 ve matplotlib 3.10.7 ile çalıştırılmıştır. Yürütücü yalnızca standart kütüphaneyi kullanır; API için ayrı bir paket gerekmez.
+The paper's 7,631 trials are in three files; one JSON record per line. See
+[`data/README.md`](data/README.md) for every file, the merge of the C3 sources and the field
+dictionary.
 
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Yalıtılmış alt süreç Linux kaynak sınırlarını (`resource` modülü) kullandığı için kod Linux üzerinde çalıştırılmalıdır.
-
-## API anahtarı gerektirmeyen doğrulama
-
-Aşağıdaki üç adım hiçbir API çağrısı yapmaz. Komutlar depo kök dizininden çalıştırılır.
-
-```bash
-# 1) Birim ve bütünleşik testler (18 test, yaklaşık 1,5 dakika)
-python3 -m unittest pilot.test_pilot
-
-# 2) Makaledeki istatistikleri ham kayıtlardan yeniden hesaplama
-python3 -m pilot.analyze_c3_unified --out-json /tmp/report.json > /tmp/report.txt
-cmp /tmp/report.json pilot/report_c3_unified.json   # çıktı vermemesi, raporun birebir aynı olduğunu gösterir
-python3 -m pilot.analyze_mechanism --out-json /tmp/mechanism.json > /tmp/mechanism.txt
-cmp /tmp/mechanism.json pilot/report_mechanism.json
-python3 -m pilot.analyze_followup --out-json /tmp/followup.json > /tmp/followup.txt
-cmp /tmp/followup.json pilot/report_followup.json
-
-# 3) Deney hattını sahte istemciyle uçtan uca çalıştırma (maliyet 0 USD)
-python3 -m pilot.runner --dry-run --experiment exp2 --models claude-haiku-5-5 --exp2-seeds 1 --out /tmp/dry.jsonl
-```
-
-Şekilleri yeniden üretmek için:
-
-```bash
-python3 -m pilot.make_figures_tr   # çıktı: paper_tr/figures/
-```
-
-## Deneyleri canlı çalıştırma
-
-Canlı koşular ücretlidir. Anahtarlar ortam değişkeninden okunur ve depoda saklanmaz:
-
-```bash
-export ANTHROPIC_API_KEY=...   # Claude modelleri
-export GEMINI_API_KEY=...      # Gemini ve Gemma modelleri
-python3 -m pilot.runner --experiment exp2 --models claude-haiku-5-5 \
-    --effort medium --exp2-seeds 25 --max-cost-usd 5 --out results_yeni.jsonl
-```
-
-Deney 2'de `--protocol verify_first` ajana adayını sorgu arayüzünde sınamasını söyler; `--protocol harness_check` ise ajanın yanıtını on yeni sorguyla denetler ve uyuşmazlıkta bir düzeltme turu verir. `--log-tool-inputs`, ajanın yazdığı Python kodunu ve sorguladığı girdileri kayda ekler. Bu protokollerle yapılan koşular makaledeki 7.631 denemenin içinde değildir; ek koşular olarak ayrı dosyalarda tutulur (aşağıya bakınız).
-
-`--max-cost-usd` harcama tavanıdır; tavana ulaşıldığında yürütücü durur. Aynı `--out` dosyasıyla yeniden başlatılan koşu, tamamlanmış denemeleri atlar. Tüm seçenekler için: `python3 -m pilot.runner --help`.
-
-## Ham kayıtlar
-
-Makaledeki 7.631 deneme üç dosyadadır. Her satır bir denemedir.
-
-| Dosya | Deneme | İçerik | SHA-256 |
+| File | Trials | Contents | SHA-256 |
 | --- | ---: | --- | --- |
-| `results_c1_haiku55.jsonl` | 680 | Parametrik zorluk kalibrasyonu (Haiku 5.5) | `045dc5c6c30d7e88e3de6efcaa57be466b7bf8c00a9b06fe9062076509fb1b00` |
-| `results_c2_pilot.jsonl` | 5.026 | Dokuz Anthropic modeli: 2.064 Deney 1 ve 2.962 Deney 2 denemesi | `ba07b3d6c6a31bf478b04130fc062c06b0d74217511e8e923f69bb4a9146c6fc` |
-| `results_c3_expansion.jsonl` | 1.925 | Google Gemini, Gemma 4 ve nedensel kontroller: 508 Deney 1 ve 1.417 Deney 2 denemesi | `5800f0c81315ff5b6e88303d834997899a815882eab26ec22009ec8134e498c6` |
+| `data/calibration/results_c1_haiku55.jsonl` | 680 | Parametric difficulty calibration (Haiku 5.5) | `045dc5c6c30d7e88e3de6efcaa57be466b7bf8c00a9b06fe9062076509fb1b00` |
+| `data/main/results_c2_pilot.jsonl` | 5,026 | Nine Anthropic models: 2,064 Exp 1 and 2,962 Exp 2 trials | `ba07b3d6c6a31bf478b04130fc062c06b0d74217511e8e923f69bb4a9146c6fc` |
+| `data/main/results_c3_expansion.jsonl` | 1,925 | Google Gemini, Gemma 4 and causal controls: 508 Exp 1 and 1,417 Exp 2 trials | `5800f0c81315ff5b6e88303d834997899a815882eab26ec22009ec8134e498c6` |
 
-`results_c3_expansion.jsonl`, aynı klasördeki dokuz kaynak dosyanın (`results_c3_anth_key*.jsonl`, `results_c3_gemini*.jsonl`, `results_c3_gemma*.jsonl`) `analyze_c3_unified.py --write-merged` ile birleştirilmiş hâlidir; kaynak dosyalar izlenebilirlik için depoda bırakılmıştır. `results_c3_gemini3_flash_free.jsonl` dosyasındaki üç kayıt, makalede yer almayan bir modelle yapılmış arayüz denemesidir ve 7.631 toplamına dâhil değildir.
+Follow-up runs made after the main data set was locked (not part of the 7,631):
 
-### Ek koşular (7.631 denemenin dışında)
-
-Ana veri kümesi kilitlendikten sonra, 23 Kasım 2026'da üç ek deney yürütülmüştür. Üçü de Deney 2'nin ana koşulunu (Çoğunluk-3, 5 tur, medium efor) ve 5000–5024 tohumlarını kullanır. Bu kayıtlarda ajanın yazdığı Python kodu (`tool_log`) ve sorguladığı girdiler (`oracle_history`) da bulunur.
-
-| Dosya | Deneme | İçerik | SHA-256 |
+| File | Trials | Contents | SHA-256 |
 | --- | ---: | --- | --- |
-| `results_c4_refutable.jsonl` | 100 | Çürütülebilir kontrolün, ana kümede bu kontrolle sınanmamış dört modelde koşulması: Haiku 4.5, Sonnet 4.6, Opus 5.5, Fable 5.2 | `1fa4d54173f8e033ebf9985e5dd761407f0ac4e02f4f490351214997a1a8b280` |
-| `results_c4_protocols.jsonl` | 1.200 | Üç protokol (standart, sınama yönergesi, yanıt denetimi) × dört koşul (kara-kutu, sade kod, zor koruyuculu kod, çürütülebilir kontrol) × dört model (Haiku 5.5, Sonnet 5.5, Gemini 3.5 Flash-Lite, Gemini 3.8 Flash) × 25 tohum | `150e70128d7c9e93174ed165f3a7d5d54cf7757ff6a652c6a10dde08cd72c5bf` |
-| `results_c5_check_tools.jsonl` | 163 | Araç kullanımına izin veren yanıt denetimi × iki koşul (kara-kutu, zor koruyuculu kod) × 25 tohum. Haiku 5.5, Sonnet 5.5 ve Gemini 3.5 Flash-Lite tamdır (150 deneme). Gemini 3.8 Flash'ta sağlayıcıdaki ön ödemeli kredi tükendiği için 50 denemenin 13'ü vardır; bu 13 kayıt analize alınmaz. | `b0d80dab17b0638324327e15ca42adbce2e2a41c6dbd1aee97c780029eb59517` |
+| `data/followup/results_c4_refutable.jsonl` | 100 | The refutable control on four models that lacked it | `1fa4d54173f8e033ebf9985e5dd761407f0ac4e02f4f490351214997a1a8b280` |
+| `data/followup/results_c4_protocols.jsonl` | 1,200 | Three protocols x four conditions x four models x 25 seeds | `150e70128d7c9e93174ed165f3a7d5d54cf7757ff6a652c6a10dde08cd72c5bf` |
+| `data/followup/results_c5_check_tools.jsonl` | 163 | The answer check with tools; one model incomplete (see `data/README.md`) | `b0d80dab17b0638324327e15ca42adbce2e2a41c6dbd1aee97c780029eb59517` |
 
-Sonnet 4.5 (`claude-sonnet-4-5-20250929`) bu tarihte API'de sunulmadığı için çürütülebilir kontrolle sınanamamıştır. Kayıtlardaki `protocol` alanı `verify_first` (sınama yönergesi), `harness_check` (yanıt denetimi) veya `harness_check_tools` (araç kullanımına izin veren yanıt denetimi) değerini alır; standart protokolde alan yoktur. Yanıt denetiminde `check_result` denetimin sonucunu (`pass`, `mismatch`, `invalid`), `first_pred_support` ve `first_pred_signs` ise denetimden önceki ilk yanıtı tutar.
+Verify all logs (including the ten C3 source files) with:
 
-`harness_check` protokolünde ajan dört tur kullanır ve denetim başarısız olursa araçsız tek bir düzeltme turu alır. `harness_check_tools` protokolünde ajan beş turunun tamamını kullanır; denetim başarısız olursa on denetim sorgusu `queries.json` dosyasına eklenir ve ajan üç tur daha alır (ilk ikisinde araç kullanabilir). Bu kayıtlarda `queries_before_check` ajanın denetimden önce harcadığı sorgu sayısıdır; `queries_used` denetimin on sorgusunu ve düzeltme turlarındaki sorguları da içerir.
+```bash
+cd data && sha256sum -c SHA256SUMS
+```
 
-Bir kayıttaki başlıca alanlar:
+## Reproducing the numbers
 
-| Alan | Anlamı |
-| --- | --- |
-| `run_key` | Denemenin benzersiz anahtarı (deney, model, efor, bütçe profili, kip, varyant, tohum) |
-| `model`, `effort`, `thinking_mode` | Model kimliği ve akıl yürütme ayarı |
-| `experiment`, `family`, `regime`, `substrate`, `variant`, `mode` | Deney koşulu |
-| `n`, `m`, `k`, `eta`, `seed` | Örnek parametreleri ve tohum |
-| `budget_track`, `turns`, `queries_used`, `q_max`, `python_calls` | Bütçe profili ve harcanan etkileşim |
-| `parse_ok`, `truncated_turns`, `stop_reasons` | Yanıtın geçerli JSON olup olmadığı ve token sınırında kesilme |
-| `decision_label`, `correct` | Deney 1 kararı ve doğruluğu |
-| `pred_support`, `pred_signs`, `heldout_acc`, `matches_decoy` | Deney 2 tahmini, 100 test noktasındaki doğruluk ve tuzak kuralla eşleşme |
-| `input_tokens`, `output_tokens`, `thinking_tokens`, `cost_usd`, `wall_s` | Token, maliyet ve süre ölçümleri |
+None of these steps calls an API. Exact commands and measured runtimes are in
+[`docs/reproducing.md`](docs/reproducing.md).
 
-## Makaledeki adlar ve kayıtlardaki etiketler
+```bash
+python -m blackwell_inversion.analysis.main_report --out-json /tmp/report.json > /tmp/report.txt
+cmp /tmp/report.json reports/report_c3_unified.json     # no output means byte-identical
+python -m blackwell_inversion.analysis.mechanism --out-json /tmp/mechanism.json > /tmp/mechanism.txt
+cmp /tmp/mechanism.json reports/report_mechanism.json
+python -m blackwell_inversion.analysis.followup --out-json /tmp/followup.json > /tmp/followup.txt
+cmp /tmp/followup.json reports/report_followup.json
 
-Makale, koşulları okunur Türkçe adlarla anar; kod ve ham kayıtlar ise aşağıdaki etiketleri kullanır.
+RUN_SLOW=1 python -m unittest tests.test_reproducibility   # all of the above, plus figures
 
-| Makaledeki ad | Kayıt alanı | Etiket |
-| --- | --- | --- |
-| Zor rejim | `regime` | `vbb_hard` |
-| Çözülebilir rejim | `regime` | `transparent` |
-| Anahtarsız kontrol (sızıntı testi, η = 0,50) | `regime` | `control_impossible` |
-| 4-XOR, n = 40 ve n = 80 (kalibrasyon aileleri) | `family`, `n` | `4xor` (`n` = 40 veya 80) |
-| 3-XOR ailesi | `family` | `3xor` |
-| Sertleştirilmiş 4-XOR ailesi | `family` | `4xor_strict` |
-| Sabit boyutlu 4-XOR ailesi (n = 120) | `family` | `4xor_fixed120` |
-| Sade kod (Deney 1) | `substrate` | `code_clean` |
-| Karartılmış kod | `substrate` | `code_obf` |
-| Seyrek ağırlık (iki katmanlı) | `substrate` | `relu_weights` |
-| Yoğun ağırlık (üç katmanlı, ortogonal ön katman) | `substrate` | `relu_weights_dense` |
-| Python araçlı / araçsız | `track` | `tool_python` / `tool_free` |
-| Çoğunluk-3 görevi | `task_type` | `majority3` |
-| Karar Listesi-3 görevi | `task_type` | `dlist3` |
-| Sade kod (Deney 2) | `variant` | `wb_clean` |
-| Kısa kontrol (kısa ölü-kod kontrolü) | `variant` | `wb_decoy_trivial_guard` |
-| Çürütülebilir kontrol (bayt-özdeş) | `variant` | `wb_decoy_long_refutable_guard` |
-| Zor koruyuculu kod | `variant` | `wb_inv_code` |
-| Opak ağırlık | `variant` | `wb_inv_relu` |
-| 3t/3t sıkı bütçe | `budget_track` | `matched_total_budget` |
-| 5t/5t orta bütçe | `budget_track` | `matched_medium_budget` |
-| 4t/8t asimetrik bütçe | `budget_track` | `matched_query_free_code` |
-| 8t/8t eşit geniş bütçe | `budget_track` | `matched_wide_equal_budget` |
-| Çıktı token tavanı 8.192 koşulu | `max_tokens_override` | `8192` |
-| Sınama yönergesi protokolü (ek koşular) | `protocol` | `verify_first` |
-| Yanıt denetimi protokolü (ek koşular) | `protocol` | `harness_check` |
-| Araç kullanımına izin veren yanıt denetimi (ek koşular) | `protocol` | `harness_check_tools` |
+python -m blackwell_inversion.analysis.figures --lang en    # figures/ (needs matplotlib)
+```
 
-Sekiz klasik saldırının kod adları (`scalar_b2`, `deg1`, `deg2_svd`, `deg2_bias_svd`, `probe_m3`, `canon_short_cover`, `canon_kikuchi`, `canon_sa`) `baselines.py` içindedir; ajana sunulan iki araç `runner.py` içinde `query_oracle` ve `run_python` adlarıyla tanımlıdır.
+## Running live experiments
 
-## Değerlendirilen modeller
+Live runs are paid. Keys are read from the environment (or from `~/.env`) and are never
+stored in the repository or passed to the sandbox:
+
+```bash
+export ANTHROPIC_API_KEY=...   # Claude models
+export GEMINI_API_KEY=...      # Gemini and Gemma models
+python -m blackwell_inversion --experiment exp2 --models claude-haiku-5-5 \
+    --effort medium --exp2-seeds 25 --max-cost-usd 5 --out results_new.jsonl
+```
+
+If every model id starts with `gemini-` or `gemma-` the Gemini client is used, otherwise the
+Anthropic client; one run uses one provider. `python -m blackwell_inversion --help` lists all
+options; `--list-models` lists the Anthropic models visible to your key.
+
+**The spend cap.** `--max-cost-usd` caps the estimated spend of one invocation. Each
+response's token usage is priced with the table in `blackwell_inversion/clients/pricing.py`
+(unknown model ids get a deliberately high fallback rate), and before every request the
+client compares the running total with the cap; once the total has reached it, the client
+raises `BudgetExceededError` instead of sending the request. A serial run then stops; with
+`--workers N` no new trial starts, and requests already in flight may still complete, so
+the total can exceed the cap by up to N requests. A trial interrupted by the cap is not
+written to the log. The total is an estimate, not the provider's bill, and it starts at
+zero in every invocation: spend from earlier, resumed runs is not counted. A Gemini
+HTTP 402 (prepaid credit exhausted) is treated like the cap.
+
+**Resuming.** Every record carries a `run_key` that encodes the model, the settings and the
+condition. Restarting with the same `--out` file skips every trial already logged;
+`--resume-from a.jsonl,b.jsonl` also skips keys found in other logs.
+
+**Exp 2 protocols.** `--protocol verify_first` tells the agent to test its candidate on the
+oracle; `--protocol harness_check` checks the answer on ten fresh queries and grants one
+tool-free revision turn on a mismatch; `--protocol harness_check_tools` grants three
+revision turns, two with tools. `--log-tool-inputs` adds the agent's Python code and its
+queried inputs to each record. Runs with these protocols are not part of the 7,631 trials.
+
+## Evaluated models
 
 - **Anthropic (9):** `claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001`, `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-opus-4-8`, `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-2`
 - **Google Gemini (4):** `gemini-3.1-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.8-flash`, `gemini-4-carbon`
-- **Açık ağırlıklı Gemma 4 (2):** `gemma-4-26b-a4b-it`, `gemma-4-31b-it`
+- **Open-weight Gemma 4 (2):** `gemma-4-26b-a4b-it`, `gemma-4-31b-it`
 
-## Bilinmesi gerekenler
+## Names in the paper and labels in the data
 
-- `on_kayit.md` yerel bir protokol belgesidir; harici bir platformda zaman damgalı ön-kayıt yapılmamıştır. Belgedeki bazı bağlantılar yazarın yerel dosya yollarını gösterir ve depoda açılmaz.
-- Ana Deney 1 ailesi olan `4xor_strict` parametreleri, kalibrasyon aşamasındaki bulgulardan sonra belirlenmiştir.
-- Ek koşular sonuçlar görüldükten sonra tasarlanmıştır ve keşifseldir; makalede ana bulgulardan ayrı bir alt bölümde raporlanır.
-- API sağlayıcıları model sürümlerini değiştirebildiği için canlı koşular kayıtlardaki sayıları birebir vermeyebilir. Kayıtlardan yapılan analiz ise deterministiktir.
+The paper names conditions in words; the code and the logs use the labels below.
 
-## Atıf
+| Name in the paper | Record field | Label |
+| --- | --- | --- |
+| Hard regime | `regime` | `vbb_hard` |
+| Solvable regime | `regime` | `transparent` |
+| Keyless control (leak test, η = 0.50) | `regime` | `control_impossible` |
+| 4-XOR, n = 40 and n = 80 (calibration families) | `family`, `n` | `4xor` (`n` = 40 or 80) |
+| 3-XOR family | `family` | `3xor` |
+| Hardened 4-XOR family | `family` | `4xor_strict` |
+| Fixed-size 4-XOR family (n = 120) | `family` | `4xor_fixed120` |
+| Clean code (Exp 1) | `substrate` | `code_clean` |
+| Obfuscated code | `substrate` | `code_obf` |
+| Sparse weights (two layers) | `substrate` | `relu_weights` |
+| Dense weights (three layers, orthogonal input layer) | `substrate` | `relu_weights_dense` |
+| With / without the Python tool | `track` | `tool_python` / `tool_free` |
+| Majority-3 task | `task_type` | `majority3` |
+| Decision List-3 task | `task_type` | `dlist3` |
+| Clean code (Exp 2) | `variant` | `wb_clean` |
+| Short control (short dead-code guard) | `variant` | `wb_decoy_trivial_guard` |
+| Refutable control (same byte length as the hard-guard code) | `variant` | `wb_decoy_long_refutable_guard` |
+| Hard-guard code | `variant` | `wb_inv_code` |
+| Opaque weights | `variant` | `wb_inv_relu` |
+| 3/3-turn tight budget | `budget_track` | `matched_total_budget` |
+| 5/5-turn medium budget | `budget_track` | `matched_medium_budget` |
+| 4/8-turn asymmetric budget | `budget_track` | `matched_query_free_code` |
+| 8/8-turn wide equal budget | `budget_track` | `matched_wide_equal_budget` |
+| Output token cap of 8,192 | `max_tokens_override` | `8192` |
+| Verify-first instruction protocol (follow-up) | `protocol` | `verify_first` |
+| Answer-check protocol (follow-up) | `protocol` | `harness_check` |
+| Answer check with tools (follow-up) | `protocol` | `harness_check_tools` |
 
-Makale yayımlandığında atıf bilgisi buraya eklenecektir.
+The code names of the eight classical attacks (`scalar_b2`, `deg1`, `deg2_svd`,
+`deg2_bias_svd`, `probe_m3`, `canon_short_cover`, `canon_kikuchi`, `canon_sa`) are in
+`baselines.py`; the agent's tools (`query_oracle_random`, `query_oracle`, `run_python`) are
+defined in `agent.py`.
+
+## Security notes on the sandbox
+
+The harness executes Python code written by the model under test. `IsolatedPythonSandbox`
+runs it in a child process with a fresh temporary working directory, an allowlisted
+environment (no API keys or other host variables), CPU-time and address-space limits and a
+wall-clock timeout. The ground truth stays in the parent process. This keeps the agent from
+reading the answer or the keys through the environment, but it is not a security
+boundary: the child runs as your user, can read any file your user can read (including
+`~/.env`) and has network access. Run live experiments in a disposable VM or container if
+that matters to you. The resource limits need Linux.
+
+## Known limitations
+
+- `docs/protocol.md` translates a local protocol document written before the experiments; it
+  was not time-stamped on an external pre-registration platform.
+- The parameters of the main Exp 1 family, `4xor_strict`, were fixed after the calibration
+  findings.
+- The follow-up runs were designed after the results had been seen and are exploratory; the
+  paper reports them in a separate subsection.
+- Providers may change the models behind an id, so live runs need not reproduce the
+  logged numbers exactly. The analysis of the logs is deterministic.
+- The mock client recognises Experiment 2 only by the Majority-3 prompt; dry runs of the
+  `dlist3` and `dtree2` tasks exercise the pipeline but their answers do not parse.
+- The run key does not encode `--thinking-budget`; runs that differ only in it share keys.
+
+## Evaluating your own model
+
+To be documented in `docs/` once the OpenAI-compatible client lands.
+
+## License
+
+To be announced on publication.
+
+## Citation
+
+Citation information will be added on publication.
