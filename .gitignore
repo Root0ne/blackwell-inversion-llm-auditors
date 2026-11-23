@@ -1,0 +1,12 @@
+# Yalnızca deney kodu ve kayıtları izlenir; makale taslakları ve çalışma notları depoya girmez.
+/*
+!/.gitignore
+!/README.md
+!/requirements.txt
+!/pilot/
+
+__pycache__/
+*.pyc
+.env
+.env.*
+.venv/
