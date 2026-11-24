@@ -8,6 +8,17 @@ anything else the Anthropic client. `--provider openai --base-url URL` talks to 
 OpenAI-compatible server, and `--client module:factory` plugs in a client of your own.
 `--preset NAME` sets every option of one of the paper's conditions (see `presets`).
 A rerun with the same --out file skips every trial already logged.
+
+A trial that raises an error is reported on one line (`--debug` adds the traceback), is
+not written to the log and is retried by the next run; the run goes on with the next
+trial, and stops after `--max-consecutive-errors` errors in a row (a broken setup).
+Ctrl-C stops scheduling: queued trials are cancelled, requests in flight finish or time
+out, and every trial already written stays in the log.
+
+Exit status: 0 when every scheduled trial is in the log (or was already), 1 when a trial
+failed or the run was stopped by the consecutive-error guard, 2 for a usage error, 3 when
+the spend cap (or an HTTP 402) stopped the run without trial errors, 130 after Ctrl-C.
+Statuses 1, 3 and 130 leave a resumable log.
 """
 
 from __future__ import annotations
@@ -16,9 +27,11 @@ import argparse
 import concurrent.futures
 import importlib
 import importlib.util
+import os
 import shlex
 import sys
 import threading
+import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -33,10 +46,37 @@ GOOGLE_MODEL_PREFIXES = ("gemini-", "gemma-")
 MOCK_MODEL_PREFIX = "mock-"
 PROGRESS_EVERY = 25
 PROVIDERS = ("auto", "anthropic", "gemini", "openai", "mock")
+DEFAULT_MAX_CONSECUTIVE_ERRORS = 5
+# Exit statuses of `main` (2 is argparse's usage error).
+EXIT_OK = 0
+EXIT_TRIAL_ERRORS = 1
+EXIT_SPEND_CAP = 3
+EXIT_INTERRUPTED = 130
 
 
 class ClientLoadError(ValueError):
     """A --client spec cannot be loaded or its factory does not return a ModelClient."""
+
+
+class _RunStopped(Exception):
+    """Raised instead of a model request once a threaded run has been stopped."""
+
+
+class _StopGate:
+    """Passes requests to the client until the run is stopped, then refuses them.
+
+    Used in threaded runs, so that a trial in flight ends at its next request after the
+    spend cap, the error guard or Ctrl-C has stopped the run.
+    """
+
+    def __init__(self, client: ModelClient, stop_event: threading.Event) -> None:
+        self._client = client
+        self._stop_event = stop_event
+
+    def create_message(self, **kwargs: Any) -> Dict[str, Any]:
+        if self._stop_event.is_set():
+            raise _RunStopped()
+        return self._client.create_message(**kwargs)
 
 
 def _csv(value: str) -> List[str]:
@@ -99,7 +139,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--effort",
         choices=("", "low", "medium", "high", "xhigh", "max"),
         default="medium",
-        help="Effort level (Anthropic output_config.effort; Gemini 3/4 thinking level).",
+        help="Effort level (Anthropic output_config.effort; Gemini 3/4 thinking level; OpenAI-compatible "
+        "reasoning_effort, which --effort '' leaves out).",
     )
     parser.add_argument("--thinking-budget", type=int, default=0, help="Thinking token budget (used with --thinking-mode budget, and by Gemini 2.5).")
     parser.add_argument("--family", choices=tuple(EXP1_FAMILIES), default="4xor_strict", help="Exp 1 instance family.")
@@ -136,7 +177,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=1, help="Concurrent worker threads.")
     parser.add_argument("--min-interval-s", type=float, default=0.0, help="Minimum seconds between Gemini API calls (for tight rate limits).")
     parser.add_argument("--max-cost-usd", type=float, default=35.0, help="Hard spend cap in USD for this run.")
-    parser.add_argument("--out", default="pilot_results.jsonl", help="Output JSONL log (resumable).")
+    parser.add_argument(
+        "--max-consecutive-errors",
+        type=int,
+        default=DEFAULT_MAX_CONSECUTIVE_ERRORS,
+        metavar="N",
+        help=f"Stop the run after N trial errors in a row (default {DEFAULT_MAX_CONSECUTIVE_ERRORS}; 0 never stops).",
+    )
+    parser.add_argument("--debug", action="store_true", help="Print the traceback of every trial error.")
+    parser.add_argument("--out", default="results.jsonl", help="Output JSONL log (resumable).")
     return parser
 
 
@@ -145,24 +194,36 @@ def load_custom_client(spec: str, args: argparse.Namespace) -> ModelClient:
     module_part, sep, attr = spec.rpartition(":")
     if not sep or not module_part or not attr:
         raise ClientLoadError(f"--client {spec!r} must have the form package.module:factory or path/to/file.py:factory.")
+    if module_part.endswith(".py"):
+        path = Path(module_part)
+        if not path.is_file():
+            raise ClientLoadError(f"--client: file {module_part!r} not found.")
+        file_spec = importlib.util.spec_from_file_location(f"_custom_client_{path.stem}", path)
+        if file_spec is None or file_spec.loader is None:
+            raise ClientLoadError(f"--client: cannot load {module_part!r} as a module.")
+    else:
+        # A module path is resolved from the working directory, as with `python -m`, also
+        # when the installed `blackwell-inversion` command (whose sys.path lacks it) runs.
+        cwd = os.getcwd()
+        if not any(entry in ("", ".") or os.path.abspath(entry) == cwd for entry in sys.path):
+            sys.path.insert(0, cwd)
     try:
         if module_part.endswith(".py"):
-            path = Path(module_part)
-            if not path.is_file():
-                raise ClientLoadError(f"--client: file {module_part!r} not found.")
-            file_spec = importlib.util.spec_from_file_location(f"_custom_client_{path.stem}", path)
-            if file_spec is None or file_spec.loader is None:
-                raise ClientLoadError(f"--client: cannot load {module_part!r} as a module.")
             module = importlib.util.module_from_spec(file_spec)
             file_spec.loader.exec_module(module)
         else:
             module = importlib.import_module(module_part)
     except ImportError as exc:
         raise ClientLoadError(f"--client: cannot import {module_part!r}: {exc}") from exc
+    except Exception as exc:  # the module itself fails: SyntaxError, NameError, ...
+        raise ClientLoadError(f"--client: loading {module_part!r} failed: {type(exc).__name__}: {exc}") from exc
     factory = getattr(module, attr, None)
     if not callable(factory):
         raise ClientLoadError(f"--client: {module_part!r} has no callable {attr!r}.")
-    client = factory(args)
+    try:
+        client = factory(args)
+    except Exception as exc:
+        raise ClientLoadError(f"--client: {spec}(args) raised {type(exc).__name__}: {exc}") from exc
     if not isinstance(client, ModelClient):
         raise ClientLoadError(
             f"--client: {spec} returned {type(client).__name__}, not a blackwell_inversion.clients.ModelClient."
@@ -197,14 +258,19 @@ def make_client(args: argparse.Namespace, models: Sequence[str]) -> ModelClient:
     return AnthropicClient(max_cost_usd=args.max_cost_usd)
 
 
-def check_client_options(args: argparse.Namespace) -> Optional[str]:
-    """A message if the client options contradict each other, else None."""
+def check_client_options(args: argparse.Namespace, given: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """A message if the client options contradict each other, else None.
+
+    `given` holds the options given on the command line (`presets.explicit_options`).
+    """
     if args.client and (args.provider != "auto" or args.dry_run):
         return "--client cannot be combined with --provider or --dry-run."
     if args.dry_run and args.provider not in ("auto", "mock"):
         return f"--dry-run uses the mock client; it cannot be combined with --provider {args.provider}."
     if args.provider == "openai" and not args.base_url:
         return "--provider openai needs --base-url (for example http://127.0.0.1:11434/v1)."
+    if args.provider == "openai" and given is not None and "models" not in given:
+        return "--provider openai needs --models: the model name(s) your server expects."
     if args.base_url and args.provider != "openai":
         return "--base-url is used only with --provider openai."
     return None
@@ -319,15 +385,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _list_models()
     if args.list_presets:
         return _list_presets()
+    given = explicit_options(build_parser, argv)
     if args.preset:
         try:
-            for note in apply_preset(args, explicit_options(build_parser, argv)):
+            for note in apply_preset(args, given):
                 print(f"[PRESET] {note}", file=sys.stderr)
         except PresetError as exc:
             parser.error(str(exc))
-    problem = check_client_options(args)
+    problem = check_client_options(args, given)
     if problem:
         parser.error(problem)
+    if args.max_consecutive_errors < 0:
+        parser.error("--max-consecutive-errors must be 0 (never stop) or positive.")
     if args.provider == "mock":
         args.dry_run = True
 
@@ -347,64 +416,148 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     all_jobs = build_jobs(args, models)
     pending = [(kind, job) for kind, job in all_jobs if job["run_key"] not in done]
     skipped = len(all_jobs) - len(pending)
-    executed = 0
-    errors = 0
 
+    run = _Run(client, args, out_path, len(pending))
     if max(1, int(args.workers)) == 1:
-        # Serial mode stops at the first trial error as well as at the spend cap.
-        try:
-            for kind, job in pending:
-                append_jsonl(out_path, run_trial(kind, job, client, args))
-                executed += 1
-        except BudgetExceededError as exc:
-            print(f"[STOPPED — BUDGET CAP] {exc}", file=sys.stderr)
+        _run_serial(run, pending)
     else:
-        executed, errors = _run_parallel(pending, client, args, out_path)
+        _run_parallel(run, pending)
 
     print(
-        f"Done. executed={executed}, skipped_resumed={skipped}, errors={errors}, "
+        f"Done. executed={run.executed}, skipped_resumed={skipped}, errors={run.errors}, "
         f"total_cost_usd=${client.total_cost_usd:.4f}, out={out_path}"
     )
-    return 0
+    status = run.exit_status()
+    if status != EXIT_OK:
+        print(f"Exit status {status}: the log is incomplete; rerun the same command to resume.", file=sys.stderr)
+    return status
 
 
-def _run_parallel(
-    pending: List[Tuple[str, Job]], client: ModelClient, args: argparse.Namespace, out_path: Path
-) -> Tuple[int, int]:
-    """Run trials on a thread pool; a trial error is counted and skipped, the spend cap stops new trials."""
-    stop_event = threading.Event()
-    write_lock = threading.Lock()
-    executed = 0
-    errors = 0
+class _Run:
+    """Outcome accounting of one invocation, shared by the serial and the threaded mode.
 
-    def run_one(kind: str, job: Job) -> Optional[Dict[str, Any]]:
-        if stop_event.is_set():
-            return None
-        return run_trial(kind, job, client, args)
+    `finish_*` may be called from worker threads; the lock serialises the counters, the
+    log writes and the messages.
+    """
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=int(args.workers)) as pool:
-        futures = {pool.submit(run_one, kind, job): job["run_key"] for kind, job in pending}
-        for fut in concurrent.futures.as_completed(futures):
-            run_key = futures[fut]
-            try:
-                rec = fut.result()
-            except BudgetExceededError as exc:
-                if not stop_event.is_set():
-                    stop_event.set()
-                    print(f"[STOPPED — BUDGET CAP] {exc}", file=sys.stderr)
-                continue
-            except Exception as exc:
-                errors += 1
-                print(f"[TRIAL ERROR] {run_key}: {exc}", file=sys.stderr)
-                continue
-            if rec is None:
-                continue
-            with write_lock:
-                append_jsonl(out_path, rec)
-                executed += 1
-                if executed % PROGRESS_EVERY == 0 or executed == len(pending):
-                    print(
-                        f"  progress: {executed}/{len(pending)} (errors={errors}, cost=${client.total_cost_usd:.4f})",
-                        flush=True,
-                    )
-    return executed, errors
+    def __init__(self, client: ModelClient, args: argparse.Namespace, out_path: Path, n_pending: int) -> None:
+        self.client = client
+        self.args = args
+        self.out_path = out_path
+        self.n_pending = n_pending
+        self.stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self.executed = 0
+        self.errors = 0
+        self.consecutive_errors = 0
+        self.spend_cap = False
+        self.aborted = False
+        self.interrupted = False
+
+    def finish_record(self, rec: Dict[str, Any]) -> None:
+        with self._lock:
+            append_jsonl(self.out_path, rec)
+            self.executed += 1
+            self.consecutive_errors = 0
+            if int(self.args.workers) > 1 and (self.executed % PROGRESS_EVERY == 0 or self.executed == self.n_pending):
+                print(
+                    f"  progress: {self.executed}/{self.n_pending} (errors={self.errors}, cost=${self.client.total_cost_usd:.4f})",
+                    flush=True,
+                )
+
+    def finish_error(self, run_key: str, exc: BaseException) -> None:
+        with self._lock:
+            self.errors += 1
+            self.consecutive_errors += 1
+            message = " ".join(str(exc).split()) or type(exc).__name__
+            print(f"[TRIAL ERROR] {run_key}: {message}", file=sys.stderr)
+            if self.args.debug:
+                traceback.print_exception(exc, file=sys.stderr)
+            limit = int(self.args.max_consecutive_errors)
+            if limit and self.consecutive_errors >= limit and not self.stop_event.is_set():
+                self.aborted = True
+                self.stop_event.set()
+                print(
+                    f"[STOPPED — {limit} CONSECUTIVE TRIAL ERRORS] The setup looks broken (see the errors above); "
+                    "fix it and rerun the same command to resume (--max-consecutive-errors changes the limit).",
+                    file=sys.stderr,
+                )
+
+    def finish_spend_cap(self, exc: BudgetExceededError) -> None:
+        with self._lock:
+            if not self.stop_event.is_set():
+                print(f"[STOPPED — BUDGET CAP] {exc}", file=sys.stderr)
+            self.spend_cap = True
+            self.stop_event.set()
+
+    def exit_status(self) -> int:
+        if self.interrupted:
+            return EXIT_INTERRUPTED
+        if self.errors or self.aborted:
+            return EXIT_TRIAL_ERRORS
+        if self.spend_cap:
+            return EXIT_SPEND_CAP
+        return EXIT_OK
+
+
+def _run_serial(run: _Run, pending: List[Tuple[str, Job]]) -> None:
+    for kind, job in pending:
+        if run.stop_event.is_set():
+            break
+        try:
+            rec = run_trial(kind, job, run.client, run.args)
+        except BudgetExceededError as exc:
+            run.finish_spend_cap(exc)
+            break
+        except KeyboardInterrupt:
+            run.interrupted = True
+            print("[INTERRUPTED] Stopped; the trial in progress is not written. Rerun the same command to resume.", file=sys.stderr)
+            break
+        except Exception as exc:
+            run.finish_error(job["run_key"], exc)
+            continue
+        run.finish_record(rec)
+
+
+def _run_parallel(run: _Run, pending: List[Tuple[str, Job]]) -> None:
+    """Run trials on a thread pool with the same outcomes as `_run_serial`.
+
+    Once the run is stopped (spend cap, error guard, Ctrl-C), no trial starts and a trial
+    in flight ends at its next model request without a record.
+    """
+    gate = _StopGate(run.client, run.stop_event)
+
+    def run_one(kind: str, job: Job) -> None:
+        if run.stop_event.is_set():
+            return
+        try:
+            rec = run_trial(kind, job, gate, run.args)  # type: ignore[arg-type]
+        except _RunStopped:
+            return
+        except BudgetExceededError as exc:
+            run.finish_spend_cap(exc)
+            return
+        except Exception as exc:
+            run.finish_error(job["run_key"], exc)
+            return
+        run.finish_record(rec)
+
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=int(run.args.workers))
+    futures: List[concurrent.futures.Future[None]] = []
+    try:
+        for kind, job in pending:
+            futures.append(pool.submit(run_one, kind, job))
+        concurrent.futures.wait(futures)
+    except KeyboardInterrupt:
+        run.interrupted = True
+        run.stop_event.set()
+        cancelled = sum(1 for fut in futures if fut.cancel())
+        in_flight = sum(1 for fut in futures if not fut.done())
+        print(
+            f"[INTERRUPTED] {cancelled} queued trials cancelled; waiting for {in_flight} trials in flight to end at their "
+            "current request (or its timeout). Trials already written stay in the log; rerun the same command to resume.",
+            file=sys.stderr,
+            flush=True,
+        )
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)

@@ -14,7 +14,7 @@
 | `parsing.py` | Final-answer parsers. |
 | `schedule.py` | Job lists, run keys and the resumable JSONL log. |
 | `presets.py` | Named sets of command line options for the paper's conditions (`--preset`). |
-| `cli.py` | Argument parsing, presets, client choice (`--provider`, `--client`), serial or threaded execution. |
+| `cli.py` | Argument parsing, presets, client choice (`--provider`, `--client`), serial or threaded execution, trial-error handling and the exit status. |
 | `analysis/` | Reports and figures computed from the logs only; `summarize.py` summarises any log with the report's estimators. |
 
 ## Data flow
@@ -73,7 +73,8 @@ def create_message(self, *, model, system, messages, max_tokens, tools=None,
 - **Output** is `{"content": [...], "stop_reason": ..., "usage": {...}, "_cost_usd": float}`.
   The loop reads `text` and `tool_use` blocks, treats `stop_reason == "tool_use"` as a tool
   turn and `"max_tokens"` as a truncated turn, and stores `content` verbatim as the
-  assistant turn (the Gemini client uses this to replay its raw parts).
+  assistant turn (the Gemini client uses this to replay its raw parts, the
+  OpenAI-compatible client to send back the server's raw assistant message).
 - **Accounting:** call `check_budget()` before sending (it raises `BudgetExceededError` once
   the cap is reached) and `record_usage(...)` after a response; price tokens with
   `pricing.estimate_cost_usd`.
@@ -90,10 +91,20 @@ real server is read.
 
 ## Notes for users of the code
 
-- **Malformed tool calls.** A tool call whose input is not an object, or whose `count` or
-  `seed` cannot be read as an integer, gets an error `tool_result` and uses no query
-  budget. Before, such a call raised `ValueError` and ended the run, so no logged trial
-  contains one; the prompts and tool schemas are unchanged.
+- **Malformed tool calls.** A tool call whose input is not an object, whose `count` or
+  `seed` cannot be read as an integer, whose `seed` makes the random-query generator's
+  seed (`seed + 104729 * queries used`) negative, or whose code is not valid UTF-8 text,
+  gets an error `tool_result` and uses no query budget; output of agent code that is not
+  UTF-8 is returned with replacement characters. Before, each of these raised and ended
+  the run, so no logged trial contains one; the prompts, tool schemas and existing error
+  messages are unchanged.
+- **Trial errors and stopping.** The driver runs each trial inside a handler: an exception
+  is printed as `[TRIAL ERROR] <run_key>: <message>` (with the traceback under `--debug`),
+  counted, and the run continues; `--max-consecutive-errors` errors in a row stop it. In a
+  threaded run the client is wrapped so that, once the run is stopped (spend cap, error
+  guard, Ctrl-C), a trial in flight ends at its next request; queued trials are
+  cancelled. `BudgetExceededError` stops the run as before. Exit status: 0 complete, 1
+  trial errors, 2 usage error, 3 spend cap, 130 Ctrl-C.
 - **Interrupted log writes.** `append_jsonl` starts a record on a new line if the log does
   not end in one, so a record written after a partial line is not lost. Readers skip the
   partial line.

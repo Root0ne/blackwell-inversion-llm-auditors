@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "blackwell-inversion"
 version = "1.0.0"
-description = "Experiments on tool-using LLM auditor agents: virtual black-box barriers and computational Blackwell inversion."
+description = "Experiments on tool-using LLM auditor agents: virtual black-box barriers and the computational inverse Blackwell effect."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

@@ -5,17 +5,20 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from typing import Any, Dict, Optional
 from unittest import mock
 
 from blackwell_inversion import cli
 from blackwell_inversion.schedule import append_jsonl, build_exp1_schedule, build_exp2_schedule, load_completed_keys
 
-from .fakes import ScriptedClient, greedy_tool_policy
+from .fakes import ScriptedClient, greedy_tool_policy, text_reply
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SMALL_EXP2 = ["--experiment", "exp2", "--models", "m1", "--variants", "wb_clean",
@@ -74,12 +77,16 @@ class TestSchedules(unittest.TestCase):
             self.assertEqual(empty.read_bytes(), b'{"run_key": "x"}\n')  # no blank first line
 
 
+def failing_policy(_i: int, _call) -> Dict[str, Any]:
+    raise RuntimeError("provider error\nsecond line")
+
+
 class TestCommandLine(unittest.TestCase):
-    def _main(self, argv, client) -> str:
-        out = io.StringIO()
+    def _main(self, argv, client, status: int = 0, out: Optional[io.StringIO] = None) -> str:
+        out = out or io.StringIO()
         with mock.patch.object(cli, "make_client", return_value=client), contextlib.redirect_stdout(out), \
                 contextlib.redirect_stderr(out):
-            self.assertEqual(cli.main(argv), 0)
+            self.assertEqual(cli.main(argv), status, out.getvalue())
         return out.getvalue()
 
     def test_resume_skips_logged_and_resume_from_keys(self) -> None:
@@ -103,7 +110,7 @@ class TestCommandLine(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out_path = Path(td) / "out.jsonl"
             client = ScriptedClient(greedy_tool_policy, cost_per_call=1.0, max_cost_usd=4.0)
-            log = self._main(SMALL_EXP2 + ["--out", str(out_path), "--max-cost-usd", "4"], client)
+            log = self._main(SMALL_EXP2 + ["--out", str(out_path), "--max-cost-usd", "4"], client, status=cli.EXIT_SPEND_CAP)
             self.assertIn("[STOPPED — BUDGET CAP]", log)
             self.assertIn("executed=1,", log)
             self.assertEqual(len(out_path.read_text().splitlines()), 1)
@@ -113,7 +120,7 @@ class TestCommandLine(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out_path = Path(td) / "out.jsonl"
             client = ScriptedClient(greedy_tool_policy, cost_per_call=1.0, max_cost_usd=4.0)
-            log = self._main(SMALL_EXP2 + ["--out", str(out_path), "--workers", "3"], client)
+            log = self._main(SMALL_EXP2 + ["--out", str(out_path), "--workers", "3"], client, status=cli.EXIT_SPEND_CAP)
             self.assertIn("[STOPPED — BUDGET CAP]", log)
             written = out_path.read_text().splitlines() if out_path.exists() else []
             self.assertLess(len(written), 6)
@@ -121,19 +128,123 @@ class TestCommandLine(unittest.TestCase):
             # and $1 calls, spend can end at most $2 above the cap.
             self.assertLessEqual(client.total_cost_usd, 6.0)
 
-    def test_threaded_run_counts_trial_errors_and_continues(self) -> None:
+    def test_trial_errors_are_counted_and_the_run_continues(self) -> None:
+        def fails_on_black_box(i: int, call):
+            if "BLACK-BOX ONLY" in call["messages"][0]["content"]:
+                raise RuntimeError("provider error\nfrom the server")
+            return greedy_tool_policy(i, call)
+
+        for workers in ("1", "2"):
+            with self.subTest(workers=workers), tempfile.TemporaryDirectory() as td:
+                out_path = Path(td) / "out.jsonl"
+                log = self._main(SMALL_EXP2 + ["--exp2-seeds", "2", "--out", str(out_path), "--workers", workers],
+                                 ScriptedClient(fails_on_black_box), status=cli.EXIT_TRIAL_ERRORS)
+                lines = [line for line in log.splitlines() if line.startswith("[TRIAL ERROR]")]
+                self.assertEqual(sorted(lines), [
+                    "[TRIAL ERROR] exp2|m1|tm=adaptive|ef=medium|matched_total_budget|BB|blackbox|s5000: provider error from the server",
+                    "[TRIAL ERROR] exp2|m1|tm=adaptive|ef=medium|matched_total_budget|BB|blackbox|s5001: provider error from the server",
+                ])
+                self.assertNotIn("Traceback", log)
+                self.assertIn("errors=2", log)
+                self.assertEqual(len(out_path.read_text().splitlines()), 2)  # both WB trials
+
+    def test_debug_prints_the_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            log = self._main(SMALL_EXP2 + ["--exp2-seeds", "1", "--out", str(Path(td) / "o.jsonl"), "--debug"],
+                             ScriptedClient(failing_policy), status=cli.EXIT_TRIAL_ERRORS)
+        self.assertIn("Traceback (most recent call last)", log)
+        self.assertIn("RuntimeError: provider error", log)
+
+    def test_consecutive_trial_errors_stop_the_run(self) -> None:
+        # Six scheduled trials, every request fails: the guard stops the run after three errors.
+        for workers in ("1", "2"):
+            with self.subTest(workers=workers), tempfile.TemporaryDirectory() as td:
+                client = ScriptedClient(failing_policy)
+                log = self._main(SMALL_EXP2 + ["--out", str(Path(td) / "o.jsonl"), "--workers", workers, "--max-consecutive-errors", "3"],
+                                 client, status=cli.EXIT_TRIAL_ERRORS)
+                self.assertIn("[STOPPED — 3 CONSECUTIVE TRIAL ERRORS]", log)
+                self.assertEqual(log.count("[STOPPED"), 1)
+                # A trial already running in another worker may still fail once.
+                self.assertIn(len(client.calls), (3,) if workers == "1" else (3, 4))
+                self.assertFalse((Path(td) / "o.jsonl").exists())
+
+    def test_a_success_resets_the_consecutive_error_count(self) -> None:
         def fails_on_black_box(i: int, call):
             if "BLACK-BOX ONLY" in call["messages"][0]["content"]:
                 raise RuntimeError("provider error")
             return greedy_tool_policy(i, call)
 
         with tempfile.TemporaryDirectory() as td:
-            out_path = Path(td) / "out.jsonl"
-            log = self._main(SMALL_EXP2 + ["--exp2-seeds", "1", "--out", str(out_path), "--workers", "2"],
-                             ScriptedClient(fails_on_black_box))
-            self.assertIn("[TRIAL ERROR]", log)
-            self.assertIn("errors=1", log)
-            self.assertEqual(len(out_path.read_text().splitlines()), 1)
+            log = self._main(SMALL_EXP2 + ["--out", str(Path(td) / "o.jsonl"), "--max-consecutive-errors", "2"],
+                             ScriptedClient(fails_on_black_box), status=cli.EXIT_TRIAL_ERRORS)
+        self.assertNotIn("[STOPPED", log)
+        self.assertIn("executed=3, skipped_resumed=0, errors=3", log)
+        with tempfile.TemporaryDirectory() as td:  # 0 switches the guard off
+            log = self._main(SMALL_EXP2 + ["--out", str(Path(td) / "o.jsonl"), "--max-consecutive-errors", "0"],
+                             ScriptedClient(failing_policy), status=cli.EXIT_TRIAL_ERRORS)
+        self.assertIn("errors=6", log)
+
+    def test_exit_status_of_a_clean_and_a_resumed_run(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            argv = SMALL_EXP2 + ["--exp2-seeds", "1", "--out", str(Path(td) / "o.jsonl")]
+            self._main(argv, ScriptedClient(greedy_tool_policy), status=cli.EXIT_OK)
+            log = self._main(argv, ScriptedClient(failing_policy), status=cli.EXIT_OK)  # nothing left to run
+            self.assertIn("executed=0, skipped_resumed=2, errors=0", log)
+
+    def test_ctrl_c_in_a_serial_run(self) -> None:
+        def interrupted_in_trial_two(i: int, call):
+            if i == 3:  # trial 1 made calls 0-2
+                raise KeyboardInterrupt
+            return greedy_tool_policy(i, call)
+
+        with tempfile.TemporaryDirectory() as td:
+            out_path = Path(td) / "o.jsonl"
+            log = self._main(SMALL_EXP2 + ["--out", str(out_path)], ScriptedClient(interrupted_in_trial_two),
+                             status=cli.EXIT_INTERRUPTED)
+            self.assertIn("[INTERRUPTED]", log)
+            self.assertNotIn("Traceback", log)
+            self.assertEqual(len(out_path.read_text().splitlines()), 1)  # the finished trial is kept
+
+    def test_ctrl_c_with_workers_stops_scheduling(self) -> None:
+        # Two workers, six trials. Both first requests block until the main thread has handled
+        # the interrupt; then one in-flight request answers (its trial is complete and written),
+        # the other asks for a tool, so its trial needs another request, which is refused.
+        # The four queued trials never start.
+        both_in_flight = threading.Barrier(2)
+        released = threading.Event()
+
+        class InterruptNotes(io.StringIO):
+            def write(self, s: str) -> int:
+                if "[INTERRUPTED]" in s:
+                    released.set()
+                return super().write(s)
+
+        def policy(i: int, call):
+            if i < 2:
+                both_in_flight.wait(30)
+                if i == 0:
+                    signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)  # a real Ctrl-C
+                self.assertTrue(released.wait(30))
+                if "BLACK-BOX ONLY" in call["messages"][0]["content"]:
+                    return text_reply({"support": [0, 1, 2], "signs": [1, 1, 1]})
+                return greedy_tool_policy(i, call)
+            raise AssertionError("a request after the interrupt")
+
+        previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+        self.addCleanup(signal.signal, signal.SIGINT, previous)
+        threads_before = set(threading.enumerate())
+        with tempfile.TemporaryDirectory() as td:
+            out_path = Path(td) / "o.jsonl"
+            client = ScriptedClient(policy)
+            log = self._main(SMALL_EXP2 + ["--out", str(out_path), "--workers", "2"], client,
+                             status=cli.EXIT_INTERRUPTED, out=InterruptNotes())
+            records = [json.loads(line) for line in out_path.read_text().splitlines()]
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual([r["mode"] for r in records], ["BB"])
+        self.assertIn("[INTERRUPTED] 4 queued trials cancelled; waiting for 2 trials in flight", log)
+        self.assertNotIn("[TRIAL ERROR]", log)
+        self.assertNotIn("Traceback", log)
+        self.assertEqual(set(threading.enumerate()) - threads_before, set())
 
     def test_client_choice(self) -> None:
         args = cli.build_parser().parse_args(["--max-cost-usd", "3"])

@@ -26,7 +26,9 @@ by `tests/test_presets.py`:
 Options a preset fixes may not be given on the command line with another value, except
 the reasoning settings `--effort` and `--thinking-mode`: a model or server without
 reasoning controls can run a preset with `--effort ""`. Its run keys then read
-`ef=default`, and the summary marks such cells as differing from the paper's setting.
+`ef=default`; the summary shows such a run as its own condition (effort=default), checks
+its preset coverage against those run keys, and compares it with the paper's rows at
+effort=default.
 """
 
 from __future__ import annotations

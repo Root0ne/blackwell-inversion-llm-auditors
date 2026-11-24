@@ -5,10 +5,14 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import List
+from unittest import mock
 
 from blackwell_inversion import cli
 from blackwell_inversion.clients import AnthropicClient, GeminiClient, MockDryRunClient, OpenAICompatClient
@@ -38,15 +42,16 @@ class TestProviderChoice(unittest.TestCase):
         self.assertIsInstance(cli.make_client(_args(["--provider", "anthropic"]), ["gemini-3.8-flash"]), AnthropicClient)
         self.assertIsInstance(cli.make_client(_args(["--provider", "gemini"]), ["anything"]), GeminiClient)
         self.assertIsInstance(cli.make_client(_args(["--provider", "mock"]), ["x"]), MockDryRunClient)
-        client = cli.make_client(_args([
-            "--provider", "openai", "--base-url", "http://127.0.0.1:9/v1", "--max-cost-usd", "2",
-            "--input-price-per-mtok", "0.5", "--output-price-per-mtok", "1.5", "--max-tokens-field", "max_completion_tokens",
-            "--request-timeout-s", "30", "--api-key-env", "SOME_VAR"]), ["m"])
+        with mock.patch.dict(os.environ, {"SOME_VAR": "k-123"}):
+            client = cli.make_client(_args([
+                "--provider", "openai", "--base-url", "http://127.0.0.1:9/v1", "--max-cost-usd", "2",
+                "--input-price-per-mtok", "0.5", "--output-price-per-mtok", "1.5", "--max-tokens-field", "max_completion_tokens",
+                "--request-timeout-s", "30", "--api-key-env", "SOME_VAR"]), ["m"])
         self.assertIsInstance(client, OpenAICompatClient)
         self.assertEqual(
             (client.base_url, client.max_cost_usd, client.input_price_per_mtok, client.output_price_per_mtok,
              client.max_tokens_field, client.timeout_s, client.api_key_env, client.api_key),
-            ("http://127.0.0.1:9/v1", 2.0, 0.5, 1.5, "max_completion_tokens", 30.0, "SOME_VAR", ""),
+            ("http://127.0.0.1:9/v1", 2.0, 0.5, 1.5, "max_completion_tokens", 30.0, "SOME_VAR", "k-123"),
         )
 
     def test_provider_mock_runs_like_dry_run(self) -> None:
@@ -71,8 +76,9 @@ class TestProviderChoice(unittest.TestCase):
             (["--dry-run", "--provider", "openai", "--base-url", "http://127.0.0.1:9/v1"], "cannot be combined"),
             (["--client", "examples.rule_based_client:make_client", "--provider", "anthropic"], "cannot be combined"),
             (["--client", "examples.rule_based_client:make_client", "--dry-run"], "cannot be combined"),
-            (["--provider", "openai", "--base-url", "localhost:9"], "http(s) URL"),
-            (["--provider", "openai", "--base-url", "http://127.0.0.1:9/v1", "--input-price-per-mtok", "-1"], "negative"),
+            (["--provider", "openai", "--base-url", "localhost:9", "--models", "m"], "http(s) URL"),
+            (["--provider", "openai", "--base-url", "http://127.0.0.1:9/v1", "--models", "m", "--input-price-per-mtok", "-1"],
+             "negative"),
         ):
             err = io.StringIO()
             with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as ctx:
@@ -143,6 +149,38 @@ class TestCustomClientHook(unittest.TestCase):
         self._fail(f"{not_a_client}:factory", "returned object, not a blackwell_inversion.clients.ModelClient")
         self._fail("examples.rule_based_client", "must have the form")
         self._fail(":make_client", "must have the form")
+
+    def test_a_broken_client_module_or_factory_fails_clearly(self) -> None:
+        cases = {
+            "syntax.py": ("def factory(args)\n    return None\n", "loading", "SyntaxError"),
+            "name.py": ("VALUE = undefined_name\ndef factory(args):\n    return None\n", "loading", "NameError"),
+            "raises.py": ("def factory(args):\n    raise RuntimeError('no model loaded')\n", "raised RuntimeError: no model loaded", ""),
+        }
+        for name, (source, message, kind) in cases.items():
+            (self.dir / name).write_text(source, encoding="utf-8")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+                cli.main(["--client", f"{self.dir / name}:factory", "--out", str(self.dir / "never.jsonl")])
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn(message, err.getvalue())
+            self.assertIn(kind, err.getvalue())
+            self.assertNotIn("Traceback", err.getvalue())
+            self.assertFalse((self.dir / "never.jsonl").exists())
+
+    def test_module_client_from_the_working_directory_with_the_installed_command(self) -> None:
+        # The installed console script does not put the working directory on sys.path;
+        # `python -P` reproduces that. The client module lives only in the working directory.
+        (self.dir / "my_wd_client.py").write_text(
+            "from blackwell_inversion.clients import MockDryRunClient\n"
+            "def make(args):\n    return MockDryRunClient()\n", encoding="utf-8")
+        script = "import sys; from blackwell_inversion.cli import main; sys.exit(main())"
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.dir), "PYTHONPATH": str(REPO_ROOT)}
+        proc = subprocess.run(
+            [sys.executable, "-P", "-c", script, "--client", "my_wd_client:make", "--experiment", "exp2", "--only-bb",
+             "--exp2-seeds", "1", "--budget-tracks", "matched_total_budget", "--models", "toy", "--out", "o.jsonl"],
+            cwd=self.dir, env=env, capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(len((self.dir / "o.jsonl").read_text().splitlines()), 1)
 
 
 if __name__ == "__main__":

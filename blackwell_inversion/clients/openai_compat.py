@@ -7,7 +7,7 @@ ways, so the agent loop does not know which provider is in use:
 
     system prompt                       -> first message, role "system"
     assistant text + tool_use blocks    <-> "content" + "tool_calls" (function name,
-                                            arguments as a JSON string)
+                                            arguments as a JSON string); see "Replay"
     user tool_result blocks             -> one role "tool" message per result, with
                                             "tool_call_id"; text blocks of the same user
                                             turn follow as one role "user" message
@@ -48,11 +48,12 @@ test in `tests/test_openai_compat.py`:
         stop_reason "tool_use": the calls are executed. With "length" the reply was cut
         at the token cap and stop_reason is "max_tokens", as with the other providers.
     reasoning text in "reasoning_content" or "reasoning"
-        dropped: not part of the answer and not sent back, as thinking blocks and
-        thought parts are with the other providers. Its token count is read from
-        usage.completion_tokens_details.reasoning_tokens when the server reports it.
-        Reasoning written inline in "content" (for example between think tags) stays
-        in the text; the answer parsers read the last matching JSON object.
+        not part of the answer text (as thinking blocks and thought parts are not with
+        the other providers), but kept in the raw message and sent back (see "Replay").
+        Its token count is read from usage.completion_tokens_details.reasoning_tokens
+        when the server reports it. Reasoning written inline in "content" (for example
+        between think tags) stays in the text; the answer parsers read the last
+        matching JSON object.
     tool calls on a turn sent with tool_choice "none"
         passed on unchanged; the agent loop executes them and ends the trial.
 
@@ -60,20 +61,47 @@ A reply that cannot be interpreted at all (not JSON, an "error" object, no "choi
 a choice without a "message" object, "tool_calls" that is not a list, a tool call
 without a function name) raises RuntimeError; no record is written for that trial.
 
+Replay. Servers may attach fields to the assistant message that they need back on the
+next request: "extra_content" on each tool call (Gemini's thought signatures),
+"reasoning_content", "reasoning" or "reasoning_details" on the message (DeepSeek- and
+OpenRouter-style servers). The message as the server sent it is therefore kept in a
+private content block (`RAW_MESSAGE_BLOCK`, allowed by the contract in `base`) and sent
+back verbatim, with these changes so that it matches the following "tool" messages and
+the function-calling format: each tool call gets the id the client assigned (the
+server's id unless it was missing or repeated); arguments the server sent as a string
+are sent back byte for byte, other values (an object, null, a number) as the JSON text
+of what was read from them; an empty "tool_calls" list is left out; and the role is
+"assistant". Turns without that block (a conversation built by other code) are rebuilt
+from the text and tool_use blocks as in the table above.
+
 Errors: 429 and 5xx are retried with exponential backoff (Retry-After is honoured);
 other HTTP errors are raised at once; 402 (payment required) raises
-BudgetExceededError like the spend cap. Network errors and timeouts are retried.
+BudgetExceededError like the spend cap. Connection errors (refused, reset, a connect
+timeout) are retried; when they persist, the error names the base URL. A read timeout
+(no reply within `timeout_s`) is not retried: the server may still be generating, and a
+retry would repeat the whole generation (on a hosted API, a billed one the spend cap
+never sees); the error asks for a larger --request-timeout-s.
+
+Proxies: requests to a loopback host (localhost, 127.0.0.0/8, ::1) never go through a
+proxy, so a local server works when http_proxy is set; other hosts use the proxy
+settings of the environment.
 
 Cost: prices of arbitrary models are unknown, so the caller gives USD prices per million
 input and output tokens (default 0, a local model). The --max-cost-usd cap is enforced
 as with the other clients. The API key is optional: it is read from the environment
 variable named by `api_key_env` (or from ~/.env) and sent as a bearer token; it is never
-included in an exception message.
+included in an exception message. A variable that is named but not set is an error when
+the client is made. A key sent over plain http:// to a host that is not loopback prints
+a one-line warning to stderr.
 """
 
 from __future__ import annotations
 
+import copy
+import http.client
+import ipaddress
 import json
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -88,6 +116,7 @@ MAX_RETRY_SLEEP_S = 30.0
 MAX_NETWORK_RETRY_SLEEP_S = 20.0
 MAX_TOKENS_FIELDS = ("max_tokens", "max_completion_tokens")
 REDACTED = "[REDACTED]"
+RAW_MESSAGE_BLOCK = "_openai_raw_message"
 
 
 def to_openai_tools(tools: List[ToolSchema]) -> List[Dict[str, Any]]:
@@ -119,6 +148,34 @@ def _arguments_text(tool_input: Any) -> str:
     return tool_input if isinstance(tool_input, str) else json.dumps(tool_input)
 
 
+def _is_loopback(host: Optional[str]) -> bool:
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _replay_raw_message(raw: Dict[str, Any], tool_uses: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The server's assistant message as it is sent back (module docstring, "Replay")."""
+    entry = copy.deepcopy(raw)
+    entry["role"] = "assistant"
+    calls = entry.get("tool_calls")
+    if not calls:
+        entry.pop("tool_calls", None)
+        return entry
+    # normalise_reply made one tool_use block per call, in order.
+    for call, use in zip(calls, tool_uses):
+        call["id"] = str(use.get("id", ""))
+        fn = call["function"]
+        if not isinstance(fn.get("arguments"), str):
+            fn["arguments"] = _arguments_text(use.get("input", {}))
+    return entry
+
+
 def convert_messages(system: str, messages: List[Message]) -> List[Dict[str, Any]]:
     """Translate the system prompt and Anthropic-form messages to chat completion messages."""
     out: List[Dict[str, Any]] = []
@@ -130,6 +187,11 @@ def convert_messages(system: str, messages: List[Message]) -> List[Dict[str, Any
         if role == "assistant":
             if isinstance(content, str):
                 out.append({"role": "assistant", "content": content})
+                continue
+            blocks = [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+            raw = next((b["message"] for b in blocks if b.get("type") == RAW_MESSAGE_BLOCK and isinstance(b.get("message"), dict)), None)
+            if raw is not None:
+                out.append(_replay_raw_message(raw, [b for b in blocks if b.get("type") == "tool_use"]))
                 continue
             texts: List[str] = []
             calls: List[Dict[str, Any]] = []
@@ -197,7 +259,7 @@ def _parse_arguments(raw: Any) -> Any:
         return {}
     try:
         parsed = json.loads(text)
-    except json.JSONDecodeError:
+    except ValueError:  # not JSON, or an integer too long to convert
         return text
     return parsed if isinstance(parsed, dict) else text
 
@@ -219,7 +281,7 @@ def normalise_reply(raw: Any, n_messages: int) -> Dict[str, Any]:
     if not isinstance(message, dict):
         raise RuntimeError("OpenAI-compatible reply has no message.")
 
-    content: List[Dict[str, Any]] = []
+    content: List[Dict[str, Any]] = [{"type": RAW_MESSAGE_BLOCK, "message": message}]
     text = _content_text(message.get("content"))
     if text:
         content.append({"type": "text", "text": text})
@@ -287,6 +349,16 @@ class OpenAICompatClient(ModelClient):
         self.base_url = base_url.rstrip("/")
         self.api_key_env = api_key_env
         self.api_key = resolve_api_key(api_key, api_key_env) if (api_key or api_key_env) else ""
+        if api_key_env and not self.api_key:
+            raise ValueError(f"--api-key-env names {api_key_env}, but that environment variable is not set (nor in ~/.env).")
+        if self.api_key and parsed.scheme == "http" and not _is_loopback(parsed.hostname):
+            print(
+                f"[WARNING] The API key is sent unencrypted over http:// to {parsed.hostname}; use an https:// base URL "
+                "unless the network is trusted.",
+                file=sys.stderr,
+            )
+        # Loopback requests bypass any proxy set in the environment; other hosts use it.
+        self._open = urllib.request.build_opener(urllib.request.ProxyHandler({})).open if _is_loopback(parsed.hostname) else None
         self.input_price_per_mtok = float(input_price_per_mtok)
         self.output_price_per_mtok = float(output_price_per_mtok)
         self.max_tokens_field = max_tokens_field
@@ -294,8 +366,6 @@ class OpenAICompatClient(ModelClient):
         self.max_retries = int(max_retries)
 
     def _headers(self) -> Dict[str, str]:
-        if self.api_key_env and not self.api_key:
-            raise RuntimeError(f"{self.api_key_env} environment variable is not set (named by --api-key-env).")
         headers = {"content-type": "application/json", "user-agent": USER_AGENT}
         if self.api_key:
             headers["authorization"] = f"Bearer {self.api_key}"
@@ -362,8 +432,9 @@ class OpenAICompatClient(ModelClient):
         last_err: Optional[str] = None
         for attempt in range(self.max_retries):
             req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            open_url = self._open or urllib.request.urlopen
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                with open_url(req, timeout=self.timeout_s) as resp:
                     payload = resp.read().decode("utf-8", errors="replace")
             except urllib.error.HTTPError as err:
                 retry_after = err.headers.get("retry-after") if err.headers else None
@@ -376,15 +447,25 @@ class OpenAICompatClient(ModelClient):
                     time.sleep(min(sleep_s, MAX_RETRY_SLEEP_S))
                     continue
                 raise RuntimeError(f"OpenAI-compatible HTTP {err.code} from {url}: {err_body}") from err
-            except (urllib.error.URLError, TimeoutError, OSError) as err:
-                last_err = self._redact(str(err))
+            except TimeoutError as err:
+                # A read timeout: the request reached the server, which may still be generating.
+                # (A connect timeout arrives as URLError and is retried below.)
+                raise RuntimeError(
+                    f"OpenAI-compatible server at {self.base_url} sent no reply within {self.timeout_s:g} s; not retried, "
+                    "because a retry repeats the whole generation. Raise --request-timeout-s for a slow model."
+                ) from err
+            except (urllib.error.URLError, http.client.HTTPException, OSError) as err:
+                last_err = " ".join(self._redact(str(err)).split())
                 if attempt < self.max_retries - 1:
                     time.sleep(min(2.0**attempt, MAX_NETWORK_RETRY_SLEEP_S))
                     continue
-                raise RuntimeError(f"OpenAI-compatible network error for {url}: {last_err}") from err
+                raise RuntimeError(
+                    f"cannot reach the OpenAI-compatible server at {self.base_url} after {self.max_retries} attempts "
+                    f"({last_err}); is it running?"
+                ) from err
             try:
                 raw = json.loads(payload)
-            except json.JSONDecodeError:
+            except ValueError:
                 raise RuntimeError(
                     f"OpenAI-compatible reply from {url} is not JSON: {self._redact(payload[:200])!r}"
                 ) from None

@@ -148,13 +148,17 @@ class LocalChatServer:
                 for key, value in extra.items():
                     self.send_header(key, value)
                 self.end_headers()
-                self.wfile.write(payload)
+                try:
+                    self.wfile.write(payload)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # the client gave up (a timeout test); nothing to deliver
 
             def log_message(self, *args: Any) -> None:
                 return None
 
         self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self._server.daemon_threads = True
+        # Handler threads are joined on exit, so no test leaves a thread behind.
+        self._server.daemon_threads = False
         self._thread = threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.05})
 
     @property

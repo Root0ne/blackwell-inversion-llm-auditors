@@ -7,17 +7,20 @@ handling of the API key. Backoff sleeps are patched out; nothing leaves the mach
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import socket
 import tempfile
+import threading
 import unittest
 from typing import Any, Dict, List
 from unittest import mock
 
 from blackwell_inversion.agent import build_tool_schemas
 from blackwell_inversion.clients import COST_KEY, BudgetExceededError, ModelClient, OpenAICompatClient
-from blackwell_inversion.clients.openai_compat import convert_messages, normalise_reply, to_openai_tools
+from blackwell_inversion.clients.openai_compat import RAW_MESSAGE_BLOCK, convert_messages, normalise_reply, to_openai_tools
 
 from .fakes import LocalChatServer, chat_reply, function_call
 
@@ -26,13 +29,22 @@ SECRET = "sk-test-0123456789abcdef"
 SLEEP = "blackwell_inversion.clients.openai_compat.time.sleep"
 
 
+DEAD_PROXY = "http://127.0.0.1:9"
+
+
 def hermetic_env(test: unittest.TestCase) -> None:
-    """For one test: an empty HOME (so no ~/.env is read) and no proxy for loopback requests."""
+    """For one test: an empty HOME (so no ~/.env is read) and a proxy that refuses connections.
+
+    No proxy exemption is set: requests to the loopback server succeed only because the
+    client bypasses proxies for loopback hosts.
+    """
     home = tempfile.TemporaryDirectory(prefix="oa_home_")
     test.addCleanup(home.cleanup)
-    patcher = mock.patch.dict(os.environ, {"HOME": home.name, "no_proxy": "*", "NO_PROXY": "*"})
+    patcher = mock.patch.dict(os.environ, {"HOME": home.name, "http_proxy": DEAD_PROXY, "HTTP_PROXY": DEAD_PROXY})
     patcher.start()
     test.addCleanup(patcher.stop)
+    for var in ("no_proxy", "NO_PROXY"):
+        os.environ.pop(var, None)
 
 
 class _ServerTest(unittest.TestCase):
@@ -150,7 +162,8 @@ class TestTranslation(unittest.TestCase):
                          usage={"prompt_tokens": 120, "completion_tokens": 30,
                                 "completion_tokens_details": {"reasoning_tokens": 12}})
         self.assertEqual(normalise_reply(raw, n_messages=1), {
-            "content": [{"type": "text", "text": "I will query."},
+            "content": [{"type": RAW_MESSAGE_BLOCK, "message": raw["choices"][0]["message"]},
+                        {"type": "text", "text": "I will query."},
                         {"type": "tool_use", "id": "x9", "name": "query_oracle_random", "input": {"count": 3}}],
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 120, "output_tokens": 30, "output_tokens_details": {"thinking_tokens": 12}},
@@ -164,17 +177,84 @@ class TestTranslation(unittest.TestCase):
         self.assertEqual(replay, {"role": "assistant", "content": None, "tool_calls": raw["choices"][0]["message"]["tool_calls"]})
 
 
+def _replay(raw: Dict[str, Any], n_messages: int = 1) -> Dict[str, Any]:
+    """The assistant message sent back on the next request for one reply."""
+    turn = normalise_reply(raw, n_messages=n_messages)["content"]
+    return convert_messages("", [{"role": "assistant", "content": turn}])[0]
+
+
+class TestReplayOfServerFields(unittest.TestCase):
+    """The server's assistant message is sent back as it came; only ids and arguments are normalised."""
+
+    def test_extra_content_and_reasoning_fields_are_sent_back(self) -> None:
+        sig = {"google": {"thought_signature": "opaque=="}}
+        details = [{"type": "reasoning.encrypted", "data": "xyz"}]
+        raw = chat_reply("Let me look.", [function_call("query_oracle_random", '{"count": 5}', "a") | {"extra_content": sig}],
+                         reasoning_content="step 1", reasoning="step 1", reasoning_details=details)
+        message = raw["choices"][0]["message"]
+        replay = _replay(raw)
+        self.assertEqual(replay, message)
+        self.assertIsNot(replay, message)
+        self.assertEqual(replay["tool_calls"][0]["extra_content"], sig)
+        # The visible turn is unchanged: the reasoning is not part of the answer text.
+        self.assertEqual([b for b in normalise_reply(raw, n_messages=1)["content"] if b["type"] != RAW_MESSAGE_BLOCK],
+                         [{"type": "text", "text": "Let me look."},
+                          {"type": "tool_use", "id": "a", "name": "query_oracle_random", "input": {"count": 5}}])
+
+    def test_synthesised_ids_replace_the_server_ids(self) -> None:
+        calls = [function_call("query_oracle", "{}", None) | {"extra_content": {"k": 1}},
+                 function_call("query_oracle", "{}", "dup"), function_call("query_oracle", "{}", "dup")]
+        replay = _replay(chat_reply(None, calls), n_messages=3)
+        self.assertEqual([c["id"] for c in replay["tool_calls"]], ["call_3_0", "dup", "call_3_2"])
+        self.assertEqual(replay["tool_calls"][0]["extra_content"], {"k": 1})
+
+    def test_arguments_are_sent_back_as_text(self) -> None:
+        cases = (
+            ('{"count":5}', '{"count":5}'),  # the server's own text, byte for byte
+            ("{oops", "{oops"),
+            ({"count": 4}, '{"count": 4}'),  # an object (non-standard) becomes its JSON text
+            (None, "{}"),
+            (7, "7"),
+        )
+        for sent, replayed in cases:
+            replay = _replay(chat_reply(None, [function_call("query_oracle_random", sent, "x")]))
+            self.assertEqual(replay["tool_calls"][0]["function"]["arguments"], replayed, sent)
+
+    def test_plain_reply_replays_as_before(self) -> None:
+        self.assertEqual(_replay(chat_reply("only text")), {"role": "assistant", "content": "only text"})
+        self.assertEqual(_replay(chat_reply(None)), {"role": "assistant", "content": None})
+        with_empty_calls = chat_reply("x")
+        with_empty_calls["choices"][0]["message"]["tool_calls"] = []
+        self.assertEqual(_replay(with_empty_calls), {"role": "assistant", "content": "x"})  # [] is not sent back
+        no_role = chat_reply("y")
+        del no_role["choices"][0]["message"]["role"]
+        self.assertEqual(_replay(no_role), {"role": "assistant", "content": "y"})
+
+    def test_turns_without_the_raw_message_are_rebuilt(self) -> None:
+        # A conversation built by other code (or an older version) has no raw-message block.
+        turn = [{"type": "text", "text": "t"}, {"type": "tool_use", "id": "i", "name": "query_oracle", "input": {}}]
+        self.assertEqual(convert_messages("", [{"role": "assistant", "content": turn}])[0], {
+            "role": "assistant", "content": "t",
+            "tool_calls": [{"id": "i", "type": "function", "function": {"name": "query_oracle", "arguments": "{}"}}]})
+
+
 class TestTolerance(unittest.TestCase):
     """How replies that real servers send are read (module docstring of openai_compat)."""
 
     def norm(self, raw: Dict[str, Any], n_messages: int = 3) -> Dict[str, Any]:
-        return normalise_reply(raw, n_messages=n_messages)
+        """The normalised reply without its leading raw-message block (checked here)."""
+        res = normalise_reply(raw, n_messages=n_messages)
+        self.assertEqual(res["content"][0], {"type": RAW_MESSAGE_BLOCK, "message": raw["choices"][0]["message"]})
+        res["content"] = res["content"][1:]
+        return res
 
     def test_missing_or_malformed_usage_counts_as_zero(self) -> None:
         zero = {"input_tokens": 0, "output_tokens": 0, "output_tokens_details": {"thinking_tokens": 0}}
         self.assertEqual(self.norm(chat_reply("x"))["usage"], zero)
         self.assertEqual(self.norm(chat_reply("x", usage={"prompt_tokens": None, "completion_tokens": "7",
                                                           "completion_tokens_details": None}))["usage"], zero)
+        negative = {"prompt_tokens": -5, "completion_tokens": -1.5, "completion_tokens_details": {"reasoning_tokens": -2}}
+        self.assertEqual(self.norm(chat_reply("x", usage=negative))["usage"], zero)
 
     def test_null_content_and_text_parts(self) -> None:
         self.assertEqual(self.norm(chat_reply(None))["content"], [])
@@ -191,6 +271,7 @@ class TestTolerance(unittest.TestCase):
             (None, {}),
             ({"count": 4}, {"count": 4}),  # already decoded by the server
             ('{"count": "five"}', {"count": "five"}),  # a JSON object; the agent loop checks the values
+            ('{"count": ' + "9" * 5000 + "}", '{"count": ' + "9" * 5000 + "}"),  # an integer too long to convert
         ):
             got = self.norm(chat_reply(None, [function_call("query_oracle_random", raw_args)]))
             self.assertEqual(got["content"][0]["input"], expected, raw_args)
@@ -217,7 +298,8 @@ class TestTolerance(unittest.TestCase):
         for raw, expected in cases:
             self.assertEqual(self.norm(raw)["stop_reason"], expected)
 
-    def test_reasoning_text_is_dropped(self) -> None:
+    def test_reasoning_text_is_not_part_of_the_turn(self) -> None:
+        # It stays in the raw-message block only, to be sent back (TestReplayOfServerFields).
         for field in ("reasoning_content", "reasoning"):
             raw = chat_reply('{"support": [1, 2, 3], "signs": [1, 1, 1]}', **{field: '{"support": [7, 8, 9]} hmm'})
             got = self.norm(raw)
@@ -243,7 +325,7 @@ class TestHTTPBehaviour(_ServerTest):
         server = self.serve([reply])
         client = OpenAICompatClient(server.base_url, input_price_per_mtok=0.2, output_price_per_mtok=1.0)
         resp = self.call(server, client)
-        self.assertEqual(resp["content"], [{"type": "text", "text": "done"}])
+        self.assertEqual(resp["content"][1:], [{"type": "text", "text": "done"}])
         self.assertAlmostEqual(resp[COST_KEY], 0.7)
         self.assertAlmostEqual(client.total_cost_usd, 0.7)
         self.assertEqual((client.total_input_tokens, client.total_output_tokens), (1_000_000, 500_000))
@@ -297,8 +379,59 @@ class TestHTTPBehaviour(_ServerTest):
         client = OpenAICompatClient(f"http://127.0.0.1:{port}/v1", max_retries=2)
         with mock.patch(SLEEP) as sleep, self.assertRaises(RuntimeError) as ctx:
             client.create_message(model="m", system="", messages=USER, max_tokens=8)
-        self.assertIn("network error", str(ctx.exception))
+        message = str(ctx.exception)
+        self.assertIn(f"cannot reach the OpenAI-compatible server at http://127.0.0.1:{port}/v1", message)
+        self.assertIn("is it running", message)
+        self.assertNotIn("\n", message)
         self.assertEqual(sleep.call_count, 1)
+
+    def test_read_timeout_is_not_retried(self) -> None:
+        release = threading.Event()
+
+        def stalls(_i: int, _body: Any, _headers: Dict[str, str]) -> Any:
+            release.wait(30)  # bounded: released by the test as soon as the client has given up
+            return chat_reply("late")
+
+        server = LocalChatServer(stalls)
+        server.__enter__()
+        self.addCleanup(server.__exit__, None, None, None)
+        self.addCleanup(release.set)  # runs first, so the handler thread ends before the server closes
+        client = OpenAICompatClient(server.base_url, timeout_s=0.2)
+        with mock.patch(SLEEP) as sleep, self.assertRaises(RuntimeError) as ctx:
+            self.call(server, client)
+        release.set()
+        self.assertEqual(len(server.requests), 1)  # one generation, not five
+        sleep.assert_not_called()
+        self.assertIn("no reply within 0.2 s", str(ctx.exception))
+        self.assertIn("--request-timeout-s", str(ctx.exception))
+
+    def test_loopback_requests_bypass_the_proxy(self) -> None:
+        # hermetic_env points http_proxy at a closed port and sets no exemption.
+        self.assertEqual(os.environ["http_proxy"], DEAD_PROXY)
+        self.assertNotIn("no_proxy", os.environ)
+        for host in ("127.0.0.1", "localhost"):
+            server = self.serve([chat_reply("direct")])
+            client = OpenAICompatClient(server.base_url.replace("127.0.0.1", host))
+            self.assertEqual(self.call(server, client)["content"][1:], [{"type": "text", "text": "direct"}])
+
+    def test_warning_for_a_key_sent_without_tls(self) -> None:
+        cases = (
+            ("http://203.0.113.7:8000/v1", "MY_LLM_KEY", True),
+            ("https://203.0.113.7/v1", "MY_LLM_KEY", False),
+            ("http://127.0.0.1:8000/v1", "MY_LLM_KEY", False),
+            ("http://localhost:8000/v1", "MY_LLM_KEY", False),
+            ("http://[::1]:8000/v1", "MY_LLM_KEY", False),
+            ("http://203.0.113.7:8000/v1", "", False),
+        )
+        for url, key_env, warned in cases:
+            err = io.StringIO()
+            with mock.patch.dict(os.environ, {"MY_LLM_KEY": SECRET}), contextlib.redirect_stderr(err):
+                OpenAICompatClient(url, api_key_env=key_env)
+            self.assertEqual("[WARNING]" in err.getvalue(), warned, url)
+            self.assertNotIn(SECRET, err.getvalue())
+            if warned:
+                self.assertIn("203.0.113.7", err.getvalue())
+                self.assertEqual(err.getvalue().count("\n"), 1)
 
     def test_spend_cap_refuses_the_next_request(self) -> None:
         reply = chat_reply("x", usage={"prompt_tokens": 1_000_000, "completion_tokens": 0})
@@ -311,13 +444,11 @@ class TestHTTPBehaviour(_ServerTest):
         self.assertEqual(len(server.requests), 2)
         self.assertAlmostEqual(client.total_cost_usd, 2.0)
 
-    def test_missing_key_fails_before_any_request(self) -> None:
-        server = self.serve([chat_reply("x")])
-        client = OpenAICompatClient(server.base_url, api_key_env="UNSET_TEST_KEY_VAR")
-        with self.assertRaises(RuntimeError) as ctx:
-            self.call(server, client)
+    def test_missing_key_fails_when_the_client_is_made(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            OpenAICompatClient("http://127.0.0.1:9/v1", api_key_env="UNSET_TEST_KEY_VAR")
         self.assertIn("UNSET_TEST_KEY_VAR", str(ctx.exception))
-        self.assertEqual(server.requests, [])
+        self.assertIn("--api-key-env", str(ctx.exception))
 
     def test_key_from_the_home_env_file(self) -> None:
         server = self.serve([chat_reply("x")])

@@ -3,7 +3,10 @@
 This guide runs the benchmark on a model of your choice and puts its result next to the
 paper's. It covers a local model behind an OpenAI-compatible server, a hosted
 OpenAI-compatible API, and a client of your own. Everything below runs from the
-repository root after the setup in the [README](../README.md#quick-start).
+repository root after the setup in the [README](../README.md#quick-start). Use the
+repository from a checkout (`pip install -e .` or `pip install -r requirements.txt`): the
+paper's report that `--compare-paper` reads and the example client live in the checkout,
+not in an installed package.
 
 ## 1. What the model must support
 
@@ -92,8 +95,12 @@ python -m blackwell_inversion --preset smoke --provider openai \
 ```
 
 The key is read from that variable (or from a line `MY_PROVIDER_KEY=...` in `~/.env`),
-sent as a bearer token, and never written to the log or to an error message. Without
-`--api-key-env` no key is sent, which is what local servers expect.
+sent as a bearer token, and never written to the log or to an error message. A variable
+that is not set stops the run at start-up. Without `--api-key-env` no key is sent, which
+is what local servers expect. A key sent over plain `http://` to a host other than this
+machine prints a warning: use `https://`. `--models` is required with `--provider openai`
+(it is the name sent to your server). Requests to a loopback address (`127.0.0.1`,
+`localhost`, `::1`) never use the proxy set in `http_proxy`; other hosts do.
 
 **Options of `--provider openai`:**
 
@@ -104,16 +111,22 @@ sent as a bearer token, and never written to the log or to an error message. Wit
 | `--input-price-per-mtok`, `--output-price-per-mtok` | 0 | USD per million tokens, for `cost_usd` and `--max-cost-usd`. 0 suits a local model. |
 | `--max-tokens-field` | `max_tokens` | Use `max_completion_tokens` for servers that reject `max_tokens`. |
 | `--effort` | `medium` | Sent as `reasoning_effort`; `--effort ""` sends nothing. |
-| `--request-timeout-s` | 600 | Seconds to wait for one reply; slow local models may need more. |
+| `--request-timeout-s` | 600 | Seconds to wait for one reply; slow local models may need more. A reply that does not arrive in time is not retried (see §8). |
 | `--workers` | 1 | Concurrent trials; raise it only if your server serves requests in parallel. |
+| `--max-consecutive-errors` | 5 | Stop after this many trial errors in a row; 0 never stops. |
+| `--debug` | off | Print the traceback of every trial error. |
 
 If the server rejects `reasoning_effort` (an HTTP 400 that names it), add `--effort ""`. A
-preset accepts this override and prints a note: the run keys then read `ef=default`, and
-the summary shows the paper's medium-effort rows for comparison. Thinking mode and
+preset accepts this override and prints a note: the run keys then read `ef=default`. The
+summary shows such a run as its own condition (effort=default), checks its preset
+coverage against those run keys, and compares it with the paper's rows at effort=default
+(Sonnet 4.5 and Haiku 4.5, which ran without an effort setting). Thinking mode and
 thinking budget are not sent to OpenAI-compatible servers. The module docstring of
 `blackwell_inversion/clients/openai_compat.py` lists how the client reads the reply
 variants that real servers produce (missing usage, `content: null`, arguments that are not
-JSON, missing tool-call ids, reasoning fields).
+JSON, missing tool-call ids, reasoning fields) and which fields of the server's reply it
+sends back on the next request (all of them, including `extra_content` on tool calls and
+`reasoning_content`, `reasoning` or `reasoning_details`, which some servers require).
 
 ## 4. Run the paper's conditions
 
@@ -137,8 +150,14 @@ value is an error, so a preset run is always the paper's condition. The values w
 from `data/main/` and `tests/test_presets.py` checks them against the logged records.
 The `smoke` run keys are a subset of `paper-exp2-main`, so the full run with the same
 `--out` file continues after them. Every run is resumable: rerunning the same command
-skips the trials already in the log, so you can stop with Ctrl-C at any time (a trial cut
-short is not written).
+skips the trials already in the log, so you can stop with Ctrl-C at any time. Queued
+trials are cancelled, requests in flight finish or time out, a trial cut short is not
+written, and every trial already written stays in the log.
+
+**Exit status.** 0 when every scheduled trial is in the log; 1 when a trial failed or the
+run was stopped after `--max-consecutive-errors` errors in a row; 2 for a usage error; 3
+when the spend cap (or an HTTP 402 from the server) stopped the run; 130 after Ctrl-C.
+Rerun the same command after 1, 3 or 130 to complete the log.
 
 ## 5. Read the summary
 
@@ -168,16 +187,32 @@ reproduces the report's numbers (checked by `tests/test_summarize.py`).
 lack seeds that others have. The summary names the missing seeds and withholds `Delta_WB`
 for such a condition, because the estimate would be on a different set of seeds than the
 black box; `--allow-incomplete` prints it over the seeds that do pair, marked with `*N`.
-`--preset NAME` also lists the scheduled trials that are not in the log. Unreadable lines
-(an interrupted write) and repeated run keys are counted and skipped. `--out-json FILE`
-writes the whole summary as JSON.
+With a single seed (the `smoke` preset) only the point value of `Delta_WB` is shown: one
+pair gives no interval and no p-value. `--preset NAME` also lists the scheduled trials
+that are not in the log, for the thinking mode and effort found in the log (so a run with
+`--effort ""` is checked against its own run keys). Unreadable lines (an interrupted
+write) are counted and skipped; a repeated trial (the same run key, or the same
+condition, mode, variant and seed under another run key) keeps its first record.
+`--out-json FILE` writes the whole summary as JSON.
+
+**Conditions are never pooled.** A condition is everything the run key encodes apart from
+the access mode, the variant and the seed: model, effort, thinking mode, protocol, budget
+track, task type and token cap. Runs of one model with different settings in one log
+(for example `smoke`, `--thinking-mode disabled` and `--protocol verify_first`) are
+summarised as separate cells, and each cell header names its thinking mode and protocol.
 
 ## 6. Compare with the paper
 
 `--compare-paper` prints, under each of your conditions, the paper's models in the same
 condition from `reports/report_c3_unified.json`: their black-box accuracy, `Delta_WB` per
-variant and the trap rate on hard-guard code (for Exp 1, their `Adv` per cell). Keep in
-mind:
+variant and the trap rate on hard-guard code (for Exp 1, their `Adv` per cell). 13 of the
+paper's 15 models ran the main Exp 2 condition (`paper-exp2-main`), and 5 have Exp 1 cells
+in the hardened 4-XOR family that `paper-exp1` uses. The rows have the same effort as your log; for an effort the paper
+did not run, the medium-effort rows are shown with a note, and a note also marks a
+thinking mode that differs from the paper's. The main report has the standard protocol
+only, so a cell of another protocol gets no rows. The report is read from the checkout; if
+it is not found (for example after a non-editable `pip install .`), the command stops
+and names `--paper-report`, which points at the file. Keep in mind:
 
 - The paper ran 25 seeds per model in the main Exp 2 condition (Gemma 4 31B 15, Gemma 4
   26B 10, Gemini 3.1 Flash-Lite 20). With 25 seeds the paper's 95% CIs of `Delta_WB` are
@@ -201,13 +236,17 @@ python -m blackwell_inversion --client examples.rule_based_client:make_client \
 python -m blackwell_inversion --client path/to/my_client.py:make_client --preset smoke --models mine --out results/mine.jsonl
 ```
 
+A module path (`package.module:factory`) is resolved from the working directory, as with
+`python -m`, also when the installed `blackwell-inversion` command is used.
+
 [`examples/rule_based_client.py`](../examples/rule_based_client.py) is a complete, runnable
 example without dependencies. Your client receives the conversation in Anthropic Messages
 form and returns `content` blocks, a `stop_reason`, `usage` and the call's cost; call
 `check_budget()` before and `record_usage(...)` after each call so that `--max-cost-usd`
 works. The factory gets the full `argparse` namespace (`args.models`, `args.max_cost_usd`,
-...). An import error, a missing factory or a factory that does not return a `ModelClient`
-stops the run before any trial with a message saying which.
+...). An import error, an error while the module is loaded (a `SyntaxError`, a
+`NameError`, ...), a missing factory, a factory that raises or one that does not return a
+`ModelClient` stops the run before any trial with a one-line message saying which.
 
 ## 8. Limitations and technical notes
 
@@ -221,11 +260,23 @@ stops the run before any trial with a message saying which.
   earlier, resumed runs is not counted. A server that reports no usage is counted as 0
   tokens, so the cap cannot stop it. With `--workers N` requests in flight may exceed the
   cap by up to N requests.
-- **A reply the client cannot interpret** (not JSON, an error object, no choices) stops a
-  serial run with an error; no record is written for that trial, and rerunning resumes.
-  With `--workers` the trial is counted as an error and the run continues.
+- **Trial errors.** A trial that fails (a reply the client cannot interpret, an HTTP error
+  such as a context-length 400, a 5xx that persists after the retries, an unreachable
+  server) is reported as one line `[TRIAL ERROR] <run_key>: <message>` (`--debug` adds the
+  traceback). No record is written for it, the run continues with the next trial, and the
+  next run retries it. After `--max-consecutive-errors` errors in a row (default 5) the run
+  stops, since the setup is then likely broken (a server that is down, a context window
+  that is too small). The exit status is 1 in both cases.
+- **Timeouts and retries.** 429 and 5xx replies and connection errors (refused, reset, a
+  connect timeout) are retried up to five attempts with backoff. A reply that does not
+  arrive within `--request-timeout-s` is not retried: the server may still be generating,
+  and a retry would repeat the generation (on a hosted API, a billed one the spend cap does
+  not see). The error asks for a larger `--request-timeout-s`.
+- **Ctrl-C.** No new trial starts, queued trials are cancelled, a request in flight
+  finishes or times out, and the trials already written stay in the log (exit status 130).
 - **Malformed tool calls** (arguments that are not a JSON object, a non-integer `count` or
-  `seed`) are answered with an error message to the model and use no query budget.
+  `seed`, a `seed` too negative for the random-query generator, code that is not valid
+  UTF-8 text) are answered with an error message to the model and use no query budget.
 - **Tool calls on the final turn.** The last turn is sent with `tool_choice: "none"`. A
   server that ignores it may still return tool calls; they are executed and the trial
   ends, so the answer must already be in that turn's text.

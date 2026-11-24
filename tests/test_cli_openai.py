@@ -11,17 +11,19 @@ import contextlib
 import io
 import json
 import random
+import socket
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List
+from unittest import mock
 
 from blackwell_inversion import cli
 from blackwell_inversion.generators import generate_blackwell_inv_instance
 
 from .fakes import LocalChatServer, chat_reply, function_call
 from .test_agent_protocols import EXP1_FIELDS, EXP2_FIELDS
-from .test_openai_compat import hermetic_env
+from .test_openai_compat import SLEEP, hermetic_env
 
 USAGE = {"prompt_tokens": 1000, "completion_tokens": 100}
 
@@ -47,23 +49,25 @@ def correlation_model(_i: int, body: Dict[str, Any], _headers: Dict[str, str]) -
     return chat_reply(f"Final answer: {json.dumps(answer)}", usage=USAGE, reasoning_content="(hidden reasoning)")
 
 
-class TestOpenAIProviderThroughTheCLI(unittest.TestCase):
+class _CLITest(unittest.TestCase):
     def setUp(self) -> None:
         hermetic_env(self)
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.out = Path(tmp.name) / "log.jsonl"
 
-    def run_cli(self, responder: Any, argv: List[str]) -> tuple:
+    def run_cli(self, responder: Any, argv: List[str], status: int = 0) -> tuple:
         server = LocalChatServer(responder)
         log = io.StringIO()
-        with server, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+        with server, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log), mock.patch(SLEEP):
             rc = cli.main(argv + ["--provider", "openai", "--base-url", server.base_url, "--models", "local-model",
                                   "--input-price-per-mtok", "1", "--output-price-per-mtok", "2", "--out", str(self.out)])
-        self.assertEqual(rc, 0, log.getvalue())
-        records = [json.loads(line) for line in self.out.read_text(encoding="utf-8").splitlines()]
-        return records, server, log.getvalue()
+        self.assertEqual(rc, status, log.getvalue())
+        lines = self.out.read_text(encoding="utf-8").splitlines() if self.out.exists() else []
+        return [json.loads(line) for line in lines], server, log.getvalue()
 
+
+class TestOpenAIProviderThroughTheCLI(_CLITest):
     def test_exp2_trial_is_solved_and_scored(self) -> None:
         records, server, _ = self.run_cli(correlation_model, [
             "--experiment", "exp2", "--variants", "wb_clean", "--budget-tracks", "matched_medium_budget", "--exp2-seeds", "1"])
@@ -138,13 +142,113 @@ class TestOpenAIProviderThroughTheCLI(unittest.TestCase):
         self.assertEqual((rec["parse_ok"], rec["heldout_acc"], rec["pred_support"]), (False, 0.5, []))
         self.assertEqual((rec["input_tokens"], rec["cost_usd"]), (0, 0.0))  # the server sent no usage
 
-    def test_an_uninterpretable_reply_writes_no_record(self) -> None:
-        server = LocalChatServer(lambda *_: {"choices": []})
+    def test_a_failing_trial_is_reported_and_the_run_continues(self) -> None:
+        # Each server breaks the first trial in its own way; the second trial succeeds.
+        context_error = (400, json.dumps({"error": {"message": "This model's maximum context length is 8192 tokens"}}), {})
+        no_message = chat_reply("x")
+        no_message["choices"][0]["message"] = None
+        failures = {
+            "uninterpretable": ({"choices": []}, 1, "OpenAI-compatible reply has no choices."),
+            "not JSON": ((200, "<html>\nproxy login\n</html>", {}), 1, "is not JSON"),
+            "message null": (no_message, 1, "OpenAI-compatible reply has no message."),
+            "context length": (context_error, 1, "HTTP 400"),
+            "persistent 500": ((500, "boom", {}), 5, "HTTP 500"),  # retried, then given up
+        }
+        for name, (bad, n_bad, message) in failures.items():
+            with self.subTest(name):
+                self.out.unlink(missing_ok=True)
+
+                def model(i: int, _body: Any, _h: Dict[str, str], bad: Any = bad, n_bad: int = n_bad) -> Any:
+                    return bad if i < n_bad else chat_reply('{"support": [0, 1, 2], "signs": [1, 1, 1]}')
+
+                records, server, log = self.run_cli(model, [
+                    "--experiment", "exp2", "--only-bb", "--exp2-seeds", "2", "--budget-tracks", "matched_total_budget"],
+                    status=cli.EXIT_TRIAL_ERRORS)
+                errors = [line for line in log.splitlines() if line.startswith("[TRIAL ERROR]")]
+                self.assertEqual(len(errors), 1, log)
+                self.assertTrue(errors[0].startswith(
+                    "[TRIAL ERROR] exp2|local-model|tm=adaptive|ef=medium|matched_total_budget|BB|blackbox|s5000: "), log)
+                self.assertIn(message, errors[0])
+                self.assertNotIn("Traceback", log)
+                self.assertEqual([r["seed"] for r in records], [5001])
+                self.assertIn("executed=1, skipped_resumed=0, errors=1", log)
+
+    def test_a_dead_server_stops_the_run_with_one_line_per_trial(self) -> None:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            url = f"http://127.0.0.1:{sock.getsockname()[1]}/v1"
         log = io.StringIO()
-        with server, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log), self.assertRaises(RuntimeError):
-            cli.main(["--experiment", "exp2", "--only-bb", "--exp2-seeds", "1", "--budget-tracks", "matched_total_budget",
-                      "--provider", "openai", "--base-url", server.base_url, "--models", "m", "--out", str(self.out)])
+        with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log), mock.patch(SLEEP):
+            rc = cli.main(["--experiment", "exp2", "--only-bb", "--exp2-seeds", "8", "--budget-tracks", "matched_total_budget",
+                           "--provider", "openai", "--base-url", url, "--models", "m", "--out", str(self.out)])
+        self.assertEqual(rc, cli.EXIT_TRIAL_ERRORS)
+        errors = [line for line in log.getvalue().splitlines() if line.startswith("[TRIAL ERROR]")]
+        self.assertEqual(len(errors), cli.DEFAULT_MAX_CONSECUTIVE_ERRORS)
+        for line in errors:
+            self.assertIn(f"cannot reach the OpenAI-compatible server at {url} after 5 attempts", line)
+        self.assertIn(f"[STOPPED — {cli.DEFAULT_MAX_CONSECUTIVE_ERRORS} CONSECUTIVE TRIAL ERRORS]", log.getvalue())
+        self.assertNotIn("Traceback", log.getvalue())
         self.assertFalse(self.out.exists())
+
+    def test_setup_errors_stop_before_any_trial(self) -> None:
+        base = ["--preset", "smoke", "--provider", "openai", "--base-url", "http://127.0.0.1:9/v1", "--out", str(self.out)]
+        for argv, message in (
+            (base + ["--models", "m", "--api-key-env", "UNSET_TEST_KEY_VAR"], "--api-key-env names UNSET_TEST_KEY_VAR"),
+            (base + ["--models", "m", "--api-key-env", "UNSET_TEST_KEY_VAR", "--workers", "4"], "UNSET_TEST_KEY_VAR"),
+            (base, "--provider openai needs --models"),
+            (base + ["--models", "m", "--max-consecutive-errors", "-1"], "--max-consecutive-errors"),
+        ):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+                cli.main(argv)
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn(message, err.getvalue())
+            self.assertNotIn("Traceback", err.getvalue())
+            self.assertFalse(self.out.exists())
+
+
+def strict_server(check: Any, extra_call: Dict[str, Any], extra_message: Dict[str, Any]) -> Any:
+    """A server that rejects a request whose earlier assistant turns lack what it attached to them."""
+
+    def model(_i: int, body: Dict[str, Any], _h: Dict[str, str]) -> Any:
+        for msg in body["messages"]:
+            if msg["role"] == "assistant" and not check(msg):
+                return (400, json.dumps({"error": {"message": "Function call is missing a thought_signature"}}), {})
+        if body.get("tool_choice") == "none":
+            return chat_reply('{"support": [0, 1, 2], "signs": [1, 1, 1]}')
+        turn = _assistant_turns(body)
+        call = function_call("query_oracle_random", '{"count": 5}', f"c{turn}") | extra_call
+        return chat_reply(None, [call], **extra_message)
+
+    return model
+
+
+class TestReplayToStrictServers(_CLITest):
+    """Whole trials against servers that need their own fields back (extra_content, reasoning)."""
+
+    ARGV = ["--experiment", "exp2", "--only-bb", "--exp2-seeds", "1", "--budget-tracks", "matched_medium_budget"]
+
+    def _check_trial(self, records: List[Dict[str, Any]], server: LocalChatServer) -> None:
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["tool_sequence"], ["query_oracle_random:ok"] * 4)
+        self.assertEqual((records[0]["turns"], records[0]["queries_used"], records[0]["parse_ok"]), (5, 20, True))
+        self.assertEqual(len(server.requests), 5)
+
+    def test_thought_signatures_on_tool_calls(self) -> None:
+        sig = {"extra_content": {"google": {"thought_signature": "c2ln"}}}
+        records, server, _ = self.run_cli(
+            strict_server(lambda m: all(c.get("extra_content") == sig["extra_content"] for c in m.get("tool_calls", [])), sig, {}),
+            self.ARGV)
+        self._check_trial(records, server)
+        last = server.requests[-1]["body"]["messages"]
+        self.assertEqual([c["id"] for m in last if m["role"] == "assistant" for c in m["tool_calls"]], ["c0", "c1", "c2", "c3"])
+
+    def test_reasoning_content_is_sent_back(self) -> None:
+        fields = {"reasoning_content": "I should sample.", "reasoning_details": [{"type": "reasoning.text", "text": "r"}]}
+        records, server, _ = self.run_cli(
+            strict_server(lambda m: all(m.get(k) == v for k, v in fields.items()), {}, fields), self.ARGV)
+        self._check_trial(records, server)
+        self.assertNotIn("I should sample", records[0]["final_excerpt"])
 
 
 if __name__ == "__main__":

@@ -32,7 +32,8 @@ negative, without changing what the function computes:
 
 Any model behind an OpenAI-compatible server (a local model served by Ollama, vLLM, the
 llama.cpp server or LM Studio, or a hosted API) can be run on the paper's conditions and
-compared with the paper's 15 models:
+compared with the paper's models in the same condition (13 of the 15 models ran the main
+Exp 2 condition; 5 have cells in the Exp 1 design):
 
 ```bash
 python -m blackwell_inversion --preset smoke --provider openai \
@@ -58,7 +59,7 @@ with these pinned versions should work. The model clients use only the standard 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt        # pinned versions; or: pip install -e ".[figures]"
 
-python -W error -m unittest discover -s tests -t .    # 156 tests, about 1.5 minutes, no network
+python -W error -m unittest discover -s tests -t .    # 190 tests, about 1.5 minutes, no network
 
 # Run the whole pipeline with the zero-cost mock client (about 1 second)
 python -m blackwell_inversion --dry-run --experiment exp2 --models claude-haiku-5-5 \
@@ -66,7 +67,9 @@ python -m blackwell_inversion --dry-run --experiment exp2 --models claude-haiku-
 ```
 
 `pip install -e .` also installs a `blackwell-inversion` command equivalent to
-`python -m blackwell_inversion`. The old entry point `python -m blackwell_inversion.runner`
+`python -m blackwell_inversion`. The repository is meant to be used from a checkout: the
+data, the reports that `--compare-paper` reads and the examples are not part of an
+installed package, so use `pip install -e .` rather than `pip install .`. The old entry point `python -m blackwell_inversion.runner`
 still works.
 
 ## Repository map
@@ -162,13 +165,18 @@ client compares the running total with the cap; once the total has reached it, t
 raises `BudgetExceededError` instead of sending the request. A serial run then stops; with
 `--workers N` no new trial starts, and requests already in flight may still complete, so
 the total can exceed the cap by up to N requests. A trial interrupted by the cap is not
-written to the log. The total is an estimate, not the provider's bill, and it starts at
+written to the log, and the run exits with status 3. The total is an estimate, not the provider's bill, and it starts at
 zero in every invocation: spend from earlier, resumed runs is not counted. An HTTP 402
 (prepaid credit exhausted) from the Gemini or an OpenAI-compatible API is treated like the cap.
 
 **Resuming.** Every record carries a `run_key` that encodes the model, the settings and the
 condition. Restarting with the same `--out` file skips every trial already logged;
-`--resume-from a.jsonl,b.jsonl` also skips keys found in other logs.
+`--resume-from a.jsonl,b.jsonl` also skips keys found in other logs. A trial that fails is
+reported on one line (`[TRIAL ERROR] <run_key>: <message>`), is not written and is retried
+by the next run; the run continues and stops after `--max-consecutive-errors` (default 5)
+errors in a row. Ctrl-C cancels the queued trials and keeps every trial already written.
+The exit status is 0 when the log holds every scheduled trial, 1 after trial errors, 2 for
+a usage error, 3 when the spend cap stopped the run and 130 after Ctrl-C.
 
 **Exp 2 protocols.** `--protocol verify_first` tells the agent to test its candidate on the
 oracle; `--protocol harness_check` checks the answer on ten fresh queries and grants one

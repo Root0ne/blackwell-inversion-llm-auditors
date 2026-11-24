@@ -285,6 +285,45 @@ class TestAgentLoop(unittest.TestCase):
         self.assertTrue(all(e["ok"] is False for e in errors))
         self.assertEqual(res["tool_log"][7], {"turn": 7, "tool": "run_python", "ok": False, "code": "print(1)", "stdout": ""})
 
+    def test_tool_inputs_that_used_to_crash_the_trial(self) -> None:
+        # Each of these raised out of the agent loop and ended the run, so no logged trial has one.
+        cases = [
+            ("query_oracle_random", {"count": 5, "seed": -1}, "seed must be a non-negative integer."),
+            ("query_oracle_random", {"count": 5, "seed": -(10**30)}, "seed must be a non-negative integer."),
+            ("query_oracle_random", {"count": "5", "seed": "-3"}, "seed must be a non-negative integer."),
+            ("run_python", {"code": "print('\ud800')"}, "the code is not valid UTF-8 text"),
+        ]
+        for name, tool_input, message in cases:
+            with self.subTest(tool_input=tool_input):
+                client, res = self._loop(lambda i, c, n=name, t=tool_input: tool_reply(n, t) if i == 0 else text_reply("x"))
+                result = json.loads(client.calls[1]["messages"][-1]["content"][0]["content"])
+                self.assertFalse(result["ok"])
+                self.assertIn(message, result["error"])
+                self.assertEqual((res["queries_used"], res["python_calls"], res["tool_sequence"]), (0, 0, [f"{name}:err"]))
+
+    def test_negative_seed_after_earlier_queries_is_unchanged(self) -> None:
+        # The random-query generator is seeded with seed + 104729 * queries used; once that is
+        # non-negative a negative seed has always worked, and logged trials may contain it.
+        def policy(i: int, call: Dict[str, Any]) -> Dict[str, Any]:
+            if i == 0:
+                return tool_reply("query_oracle_random", {"count": 2}, call_id="a")
+            if i == 1:
+                return tool_reply("query_oracle_random", {"count": 2, "seed": -5}, call_id="b")
+            return text_reply("x")
+
+        _, res = self._loop(policy)
+        self.assertEqual((res["queries_used"], res["tool_sequence"]), (4, ["query_oracle_random:ok"] * 2))
+
+    def test_child_output_that_is_not_utf8_is_returned(self) -> None:
+        client, res = self._loop(lambda i, c: tool_reply("run_python", {
+            "code": "import sys\nsys.stdout.buffer.write(b'ok \\xff\\xfe')\nsys.stderr.buffer.write(b'\\xc3(')\n"}) if i == 0
+            else text_reply("x"))
+        result = json.loads(client.calls[1]["messages"][-1]["content"][0]["content"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["stdout"], "ok \ufffd\ufffd")
+        self.assertEqual(result["stderr"], "\ufffd(")
+        self.assertEqual(res["python_calls"], 1)
+
     def test_spend_cap_interrupts_a_trial(self) -> None:
         client = ScriptedClient(greedy_tool_policy, cost_per_call=1.0, max_cost_usd=2.5)
         with self.assertRaises(BudgetExceededError):

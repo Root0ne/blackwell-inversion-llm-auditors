@@ -176,7 +176,16 @@ class MeteredOracle:
                 "queries_used": self.queries_used,
                 "remaining": 0,
             }
-        rng = np.random.default_rng(int(seed) + 104729 * self.queries_used)
+        rng_seed = int(seed) + 104729 * self.queries_used
+        if rng_seed < 0:
+            # The generator needs a non-negative seed. A negative `seed` that still gives one
+            # (after earlier queries) is accepted, as it always was.
+            return {
+                "ok": False,
+                "error": "seed must be a non-negative integer.",
+                "remaining": self.max_queries - self.queries_used,
+            }
+        rng = np.random.default_rng(rng_seed)
         X = rng.choice([-1, 1], size=(actual, self.n)).astype(np.int8)
         res = self.query(X.tolist())
         # Include compact summary so tool-equipped agents can read full X/y from queries.json
@@ -236,9 +245,14 @@ class IsolatedPythonSandbox:
     def run_python(self, code: str) -> Dict[str, Any]:
         """Execute user/agent Python code inside the isolated tempdir with scrubbed env."""
         assert self.workdir is not None, "Sandbox not entered"
+        try:
+            source = code.encode("utf-8")
+        except UnicodeEncodeError:
+            # A lone surrogate (from a JSON escape) cannot be written; the code is not run.
+            return {"ok": False, "error": "the code is not valid UTF-8 text (it contains a lone surrogate); it was not run."}
         self.exec_count += 1
         script_path = self.workdir / f"_agent_step_{self.exec_count}.py"
-        script_path.write_text(code, encoding="utf-8")
+        script_path.write_bytes(source)
 
         # Strict allowlisted environment — strips ANTHROPIC_API_KEY and all other host credentials
         clean_env = {
@@ -264,6 +278,7 @@ class IsolatedPythonSandbox:
                 env=clean_env,
                 capture_output=True,
                 text=True,
+                errors="replace",  # output that is not UTF-8 is returned with U+FFFD, not raised
                 timeout=self.timeout_s,
                 preexec_fn=_make_rlimit_preexec(cpu_limit, self.mem_mb),
             )

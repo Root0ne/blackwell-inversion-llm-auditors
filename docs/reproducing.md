@@ -21,8 +21,8 @@ python -m unittest tests.test_data_integrity          # digests, counts, unique 
 ## Tests
 
 ```bash
-python -W error -m unittest discover -s tests -t .             # 156 tests, ~90 s (5 slow tests skipped)
-RUN_SLOW=1 python -W error -m unittest discover -s tests -t .  # all 156 tests, ~105 s
+python -W error -m unittest discover -s tests -t .             # 190 tests, ~95 s (5 slow tests skipped)
+RUN_SLOW=1 python -W error -m unittest discover -s tests -t .  # all 190 tests, ~115 s
 RUN_SLOW=1 python -m unittest tests.test_reproducibility       # only the 5 slow tests, ~20 s
 ```
 
