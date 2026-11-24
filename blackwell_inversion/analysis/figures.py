@@ -184,7 +184,7 @@ LABELS: Dict[str, Dict[str, Any]] = {
         "opaque_weights": "Opaque weights",
         "opus46_8k": "Opus 4.6, hard-guard code, token cap 8,192",
         "net_wb_advantage": NET_WB_ADVANTAGE_EN,
-        "inversion": r"Inversion ($\Delta_{\mathrm{WB}} < 0$)",
+        "inversion": r"Inverse effect ($\Delta_{\mathrm{WB}} < 0$)",
         "effort_ticks": ["Low", "Medium", "High"],
         "fig3a_ylabel": "Trap Rate on Hard-Guard Code (%)",
         "fig3a_title": "(a) Effort Sweep: Four Models, Two Providers",
