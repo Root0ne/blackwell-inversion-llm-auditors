@@ -1,9 +1,8 @@
 # The Computational Inverse Blackwell Effect: Experiment Code and Trial Logs
 
 This repository holds the code, the raw logs of 7,631 live trials, and the analysis
-scripts behind the paper "The Computational Inverse Blackwell Effect and the
-Observer-Relative Virtual Black-Box Property in Tool-Using Large Language Model Auditors"
-(under review). It also lets you run the same benchmark on a model of your own.
+scripts behind the paper "The Computational Inverse Blackwell Effect in Tool-Using Language
+Model Auditors: When White-Box Access Lowers Accuracy" (under review). It also lets you run the same benchmark on a model of your own.
 
 ## What the benchmark measures
 
