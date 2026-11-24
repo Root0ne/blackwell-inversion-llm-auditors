@@ -1,4 +1,8 @@
-"""Byte-identical regeneration of the published reports, and figure rendering.
+"""Regeneration of the published reports, and figure rendering.
+
+A regenerated report must equal the published one. Byte-identical output is expected on the
+machine that produced the reports; elsewhere floating-point values may differ in their last
+digit, which `blackwell_inversion.analysis.compare` accepts and nothing else.
 
 Slow (about half a minute); runs only with RUN_SLOW=1:
 
@@ -14,6 +18,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from blackwell_inversion.analysis.compare import file_differences, text_differences
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPORTS = REPO_ROOT / "reports"
@@ -42,8 +48,9 @@ class TestReportsRegenerate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out_json = Path(td) / f"{stem}.json"
             stdout = _run(module, "--out-json", str(out_json))
-            self.assertEqual(out_json.read_bytes(), (REPORTS / f"{stem}.json").read_bytes(), f"{stem}.json differs")
-            self.assertEqual(stdout, (REPORTS / f"{stem}.txt").read_bytes(), f"{stem}.txt differs")
+            self.assertIn(file_differences(out_json, REPORTS / f"{stem}.json"), (None, []), f"{stem}.json differs")
+            published = (REPORTS / f"{stem}.txt").read_text(encoding="utf-8")
+            self.assertEqual(text_differences(stdout.decode("utf-8"), published), [], f"{stem}.txt differs")
 
     def test_main_report(self) -> None:
         self._check("blackwell_inversion.analysis.main_report", "report_c3_unified")
@@ -59,8 +66,8 @@ class TestReportsRegenerate(unittest.TestCase):
             out_json, out_md = Path(td) / "master.json", Path(td) / "master.md"
             _run("blackwell_inversion.analysis.legacy_report", "data/main/results_c2_pilot.jsonl",
                  "--json-out", str(out_json), "--md-out", str(out_md))
-            self.assertEqual(out_json.read_bytes(), (REPORTS / "legacy" / "report_master_final.json").read_bytes())
-            self.assertEqual(out_md.read_bytes(), (REPORTS / "legacy" / "report_master_final.md").read_bytes())
+            self.assertIn(file_differences(out_json, REPORTS / "legacy" / "report_master_final.json"), (None, []))
+            self.assertIn(file_differences(out_md, REPORTS / "legacy" / "report_master_final.md"), (None, []))
 
 
 @unittest.skipUnless(SLOW, "set RUN_SLOW=1 to render the figures")

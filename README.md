@@ -59,7 +59,7 @@ with these pinned versions should work. The model clients use only the standard 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt        # pinned versions; or: pip install -e ".[figures]"
 
-python -W error -m unittest discover -s tests -t .    # 190 tests, about 1.5 minutes, no network
+python -W error -m unittest discover -s tests -t .    # 197 tests, about 1.5 minutes, no network
 
 # Run the whole pipeline with the zero-cost mock client (about 1 second)
 python -m blackwell_inversion --dry-run --experiment exp2 --models claude-haiku-5-5 \
@@ -86,7 +86,7 @@ still works.
 | `blackwell_inversion/parsing.py` | Parsers for the agent's final answer. |
 | `blackwell_inversion/schedule.py`, `cli.py` | Trial schedules and run keys; the command line driver with the resumable JSONL log. |
 | `blackwell_inversion/presets.py` | The `--preset` conditions (`paper-exp2-main`, `paper-exp1`, `smoke`). |
-| `blackwell_inversion/analysis/` | `stats.py` (statistics), `main_report.py`, `mechanism.py`, `followup.py` (the three reports), `summarize.py` (summary of your own log), `figures.py`, and `legacy_report.py` (the earlier stage report). |
+| `blackwell_inversion/analysis/` | `stats.py` (statistics), `main_report.py`, `mechanism.py`, `followup.py` (the three reports), `summarize.py` (summary of your own log), `compare.py` (regenerated against published report), `figures.py`, and `legacy_report.py` (the earlier stage report). |
 | `data/` | Trial logs, `SHA256SUMS`, and `data/README.md` with the field dictionary. |
 | `reports/` | The three reports the paper relies on; `reports/legacy/` holds superseded stage reports. |
 | `docs/` | [`evaluating_your_model.md`](docs/evaluating_your_model.md), [`protocol.md`](docs/protocol.md) (study protocol), [`architecture.md`](docs/architecture.md), [`reproducing.md`](docs/reproducing.md). |
@@ -123,14 +123,17 @@ cd data && sha256sum -c SHA256SUMS
 
 None of these steps calls an API. Exact commands and measured runtimes are in
 [`docs/reproducing.md`](docs/reproducing.md).
+`compare` prints `identical (byte for byte)` on the machine that produced the reports; on
+other hardware a float may differ in its last digit, which it reports as
+`equal within tolerance`.
 
 ```bash
 python -m blackwell_inversion.analysis.main_report --out-json /tmp/report.json > /tmp/report.txt
-cmp /tmp/report.json reports/report_c3_unified.json     # no output means byte-identical
+python -m blackwell_inversion.analysis.compare /tmp/report.json reports/report_c3_unified.json
 python -m blackwell_inversion.analysis.mechanism --out-json /tmp/mechanism.json > /tmp/mechanism.txt
-cmp /tmp/mechanism.json reports/report_mechanism.json
+python -m blackwell_inversion.analysis.compare /tmp/mechanism.json reports/report_mechanism.json
 python -m blackwell_inversion.analysis.followup --out-json /tmp/followup.json > /tmp/followup.txt
-cmp /tmp/followup.json reports/report_followup.json
+python -m blackwell_inversion.analysis.compare /tmp/followup.json reports/report_followup.json
 
 RUN_SLOW=1 python -m unittest tests.test_reproducibility   # all of the above, plus figures
 

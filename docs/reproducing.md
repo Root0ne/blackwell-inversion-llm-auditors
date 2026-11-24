@@ -21,8 +21,8 @@ python -m unittest tests.test_data_integrity          # digests, counts, unique 
 ## Tests
 
 ```bash
-python -W error -m unittest discover -s tests -t .             # 190 tests, ~95 s (5 slow tests skipped)
-RUN_SLOW=1 python -W error -m unittest discover -s tests -t .  # all 190 tests, ~115 s
+python -W error -m unittest discover -s tests -t .             # 197 tests, ~95 s (5 slow tests skipped)
+RUN_SLOW=1 python -W error -m unittest discover -s tests -t .  # all 197 tests, ~115 s
 RUN_SLOW=1 python -m unittest tests.test_reproducibility       # only the 5 slow tests, ~20 s
 ```
 
@@ -41,9 +41,22 @@ for byte, and render the figures in both languages.
 | Follow-up runs | `python -m blackwell_inversion.analysis.followup --out-json X.json > X.txt` | 2.5 s |
 | Legacy stage report | `python -m blackwell_inversion.analysis.legacy_report data/main/results_c2_pilot.jsonl --json-out X.json --md-out X.md` | 0.8 s |
 
-Compare with `cmp` against `reports/report_c3_unified.{json,txt}`,
+Compare against `reports/report_c3_unified.{json,txt}`,
 `reports/report_mechanism.{json,txt}`, `reports/report_followup.{json,txt}` and
-`reports/legacy/report_master_final.{json,md}`; all are byte-identical. Without
+`reports/legacy/report_master_final.{json,md}`:
+
+```bash
+python -m blackwell_inversion.analysis.compare X.json reports/report_c3_unified.json
+python -m blackwell_inversion.analysis.compare X.txt reports/report_c3_unified.txt
+```
+
+On the machine that produced the reports all of them are byte-identical (`cmp` prints
+nothing). On other hardware the same pinned numpy and scipy may round the last bit of a
+floating-point sum differently: on a hosted Linux runner the mechanism and follow-up reports
+each differed from the published files in the last digit of a float (a relative difference
+of about 1e-16). `compare` reports such files as "equal within tolerance" (floats within a
+relative 1e-9, printed decimals within one unit of their last place, everything else
+equal) and anything larger as different; the reproduction tests use the same rule. Without
 `--out-json`, `main_report` and `mechanism` overwrite the files in `reports/`.
 
 `python -m blackwell_inversion.analysis.summarize data/main/results_c2_pilot.jsonl
